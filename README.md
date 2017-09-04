@@ -1,6 +1,6 @@
 # esp32-owb
 
-This is a ESP32-compatible C library for the Maxim Integrated "1-Wire" protocol.
+This is a ESP32-compatible C component for the Maxim Integrated "1-Wire" protocol.
 
 It is written and tested for the v2.0 of the [ESP-IDF](https://github.com/espressif/esp-idf) environment, using the xtensa-esp32-elf toolchain (gcc version 5.2.0).
 
@@ -30,6 +30,7 @@ The code in this project is licensed under the MIT license - see LICENSE for det
 
 ## Links
 
+ * [esp32-ds18b20 - ESP32-comaptible DS18B20 Digital Thermometer component for ESP32](https://github.com/DavidAntliff/esp32-ds18b20)
  * [1-Wire Communication Through Software](https://www.maximintegrated.com/en/app-notes/index.mvp/id/126)
  * [1-Wire Search Algorithm](https://www.maximintegrated.com/en/app-notes/index.mvp/id/187)
  * [Espressif IoT Development Framework for ESP32](https://github.com/espressif/esp-idf)
