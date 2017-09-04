@@ -30,7 +30,7 @@ The code in this project is licensed under the MIT license - see LICENSE for det
 
 ## Links
 
- * [esp32-ds18b20 - ESP32-comaptible DS18B20 Digital Thermometer component for ESP32](https://github.com/DavidAntliff/esp32-ds18b20)
+ * [esp32-ds18b20](https://github.com/DavidAntliff/esp32-ds18b20) - ESP32-compatible DS18B20 Digital Thermometer component for ESP32
  * [1-Wire Communication Through Software](https://www.maximintegrated.com/en/app-notes/index.mvp/id/126)
  * [1-Wire Search Algorithm](https://www.maximintegrated.com/en/app-notes/index.mvp/id/187)
  * [Espressif IoT Development Framework for ESP32](https://github.com/espressif/esp-idf)
