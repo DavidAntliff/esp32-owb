@@ -32,8 +32,8 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include "freertos/FreeRTOS.h"
-#include "FreeRTOS/task.h"
+//#include "freertos/FreeRTOS.h"
+//#include "FreeRTOS/task.h"
 #include "esp_log.h"
 #include "sdkconfig.h"
 #include "driver/gpio.h"
@@ -163,10 +163,10 @@ static int _read_bit(const OneWireBus * bus)
     int result = 0;
     if (_is_init(bus))
     {
+//        ESP_LOGD(TAG, "Enter critical region: read_bit");
 //        portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
 //        taskENTER_CRITICAL(&timeCriticalMutex);
 
-        ESP_LOGD(TAG, "Enter critical region: read_bit");
         gpio_set_direction(bus->gpio, GPIO_MODE_OUTPUT);
         gpio_set_level(bus->gpio, 0);  // Drive DQ low
         _us_delay(bus->timing->A);
@@ -294,7 +294,7 @@ static uint8_t _calc_crc_block(uint8_t crc, const uint8_t * buffer, size_t len)
     do
     {
         crc = _calc_crc(crc, *buffer++);
-        ESP_LOGD(TAG, "crc 0x%02x, len %d", crc, len);
+        ESP_LOGD(TAG, "crc 0x%02x, len %d", (int)crc, (int)len);
     }
     while (--len > 0);
     return crc;
