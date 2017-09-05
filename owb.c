@@ -32,8 +32,8 @@
 #include <string.h>
 #include <stdlib.h>
 
-//#include "freertos/FreeRTOS.h"
-//#include "FreeRTOS/task.h"
+#include "freertos/FreeRTOS.h"
+#include "FreeRTOS/task.h"
 #include "esp_log.h"
 #include "sdkconfig.h"
 #include "driver/gpio.h"
@@ -101,10 +101,8 @@ static bool _reset(const OneWireBus * bus)
     bool present = false;
     if (_is_init(bus))
     {
-        // For some reason this crashes the ESP32
-//        ESP_LOGD(TAG, "Enter critical region: reset");
-//        portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
-//        taskENTER_CRITICAL(&timeCriticalMutex);
+        portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
+        taskENTER_CRITICAL(&timeCriticalMutex);
 
         gpio_set_direction(bus->gpio, GPIO_MODE_OUTPUT);
         _us_delay(bus->timing->G);
@@ -118,8 +116,7 @@ static bool _reset(const OneWireBus * bus)
         _us_delay(bus->timing->J);   // Complete the reset sequence recovery
         int level2 = gpio_get_level(bus->gpio);
 
-//        taskEXIT_CRITICAL(&timeCriticalMutex);
-//        ESP_LOGD(TAG, "Exit critical region: reset");
+        taskEXIT_CRITICAL(&timeCriticalMutex);
 
         present = (level1 == 0) && (level2 == 1);   // Sample for presence pulse from slave
         ESP_LOGD(TAG, "reset: level1 0x%x, level2 0x%x, present %d", level1, level2, present);
@@ -139,9 +136,8 @@ static void _write_bit(const OneWireBus * bus, int bit)
         int delay1 = bit ? bus->timing->A : bus->timing->C;
         int delay2 = bit ? bus->timing->B : bus->timing->D;
 
-//        ESP_LOGD(TAG, "Enter critical region: write_bit");
-//        portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
-//        taskENTER_CRITICAL(&timeCriticalMutex);
+        portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
+        taskENTER_CRITICAL(&timeCriticalMutex);
 
         gpio_set_direction(bus->gpio, GPIO_MODE_OUTPUT);
         gpio_set_level(bus->gpio, 0);  // Drive DQ low
@@ -149,8 +145,7 @@ static void _write_bit(const OneWireBus * bus, int bit)
         gpio_set_level(bus->gpio, 1);  // Release the bus
         _us_delay(delay2);
 
-//        taskEXIT_CRITICAL(&timeCriticalMutex);
-//        ESP_LOGD(TAG, "Exit critical region: write_bit");
+        taskEXIT_CRITICAL(&timeCriticalMutex);
     }
 }
 
@@ -163,9 +158,8 @@ static int _read_bit(const OneWireBus * bus)
     int result = 0;
     if (_is_init(bus))
     {
-//        ESP_LOGD(TAG, "Enter critical region: read_bit");
-//        portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
-//        taskENTER_CRITICAL(&timeCriticalMutex);
+        portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
+        taskENTER_CRITICAL(&timeCriticalMutex);
 
         gpio_set_direction(bus->gpio, GPIO_MODE_OUTPUT);
         gpio_set_level(bus->gpio, 0);  // Drive DQ low
@@ -177,8 +171,7 @@ static int _read_bit(const OneWireBus * bus)
         int level = gpio_get_level(bus->gpio);
         _us_delay(bus->timing->F);   // Complete the timeslot and 10us recovery
 
-//        taskEXIT_CRITICAL(&timeCriticalMutex);
-//        ESP_LOGD(TAG, "Exit critical region: read_bit");
+        taskEXIT_CRITICAL(&timeCriticalMutex);
 
         result = level & 0x01;
     }
