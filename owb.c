@@ -33,7 +33,7 @@
 #include <stdlib.h>
 
 #include "freertos/FreeRTOS.h"
-#include "FreeRTOS/task.h"
+#include "freertos/task.h"
 #include "esp_log.h"
 #include "sdkconfig.h"
 #include "driver/gpio.h"
