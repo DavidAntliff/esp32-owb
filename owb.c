@@ -108,10 +108,10 @@ static bool _reset(const OneWireBus * bus)
         _us_delay(bus->timing->G);
         gpio_set_level(bus->gpio, 0);  // Drive DQ low
         _us_delay(bus->timing->H);
-        gpio_set_level(bus->gpio, 1);  // Release the bus
+        gpio_set_direction(bus->gpio, GPIO_MODE_INPUT); // Release the bus
+        gpio_set_level(bus->gpio, 1);  // Reset the output level for the next output
         _us_delay(bus->timing->I);
 
-        gpio_set_direction(bus->gpio, GPIO_MODE_INPUT);
         int level1 = gpio_get_level(bus->gpio);
         _us_delay(bus->timing->J);   // Complete the reset sequence recovery
         int level2 = gpio_get_level(bus->gpio);
@@ -164,10 +164,10 @@ static int _read_bit(const OneWireBus * bus)
         gpio_set_direction(bus->gpio, GPIO_MODE_OUTPUT);
         gpio_set_level(bus->gpio, 0);  // Drive DQ low
         _us_delay(bus->timing->A);
-        gpio_set_level(bus->gpio, 1);  // Release the bus
+        gpio_set_direction(bus->gpio, GPIO_MODE_INPUT); // Release the bus
+        gpio_set_level(bus->gpio, 1);  // Reset the output level for the next output
         _us_delay(bus->timing->E);
 
-        gpio_set_direction(bus->gpio, GPIO_MODE_INPUT);
         int level = gpio_get_level(bus->gpio);
         _us_delay(bus->timing->F);   // Complete the timeslot and 10us recovery
 
