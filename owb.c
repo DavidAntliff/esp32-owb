@@ -293,6 +293,7 @@ static uint8_t _calc_crc_block(uint8_t crc, const uint8_t * buffer, size_t len)
     return crc;
 }
 
+/* @return true if a device was found, false if not */
 static bool _search(const OneWireBus * bus, OneWireBus_SearchState * state)
 {
     // Based on https://www.maximintegrated.com/en/app-notes/index.mvp/id/187
