@@ -42,6 +42,20 @@
 
 static const char * TAG = "owb";
 
+// Define PHY_DEBUG to enable GPIO output around when the bus is sampled
+// by the master (this library). This GPIO output makes it possible to
+// validate the master's sampling using an oscilloscope.
+//
+// For the debug GPIO the idle state is low and made high before the 1-wire sample
+// point and low again after the sample point
+#undef PHY_DEBUG
+
+#ifdef PHY_DEBUG
+// Update these defines to a pin that you can access
+#define PHY_DEBUG_GPIO GPIO_NUM_27
+#define PHY_DEBUG_GPIO_MASK GPIO_SEL_27
+#endif
+
 /// @cond ignore
 struct _OneWireBus_Timing
 {
@@ -112,9 +126,27 @@ static bool _reset(const OneWireBus * bus)
         gpio_set_level(bus->gpio, 1);  // Reset the output level for the next output
         _us_delay(bus->timing->I);
 
+#ifdef PHY_DEBUG
+        gpio_set_level(PHY_DEBUG_GPIO, 1);
+#endif
+
         int level1 = gpio_get_level(bus->gpio);
+
+#ifdef PHY_DEBUG
+        gpio_set_level(PHY_DEBUG_GPIO, 0);
+#endif
+
         _us_delay(bus->timing->J);   // Complete the reset sequence recovery
+
+#ifdef PHY_DEBUG
+        gpio_set_level(PHY_DEBUG_GPIO, 1);
+#endif
+
         int level2 = gpio_get_level(bus->gpio);
+
+#ifdef PHY_DEBUG
+        gpio_set_level(PHY_DEBUG_GPIO, 0);
+#endif
 
         taskEXIT_CRITICAL(&timeCriticalMutex);
 
@@ -168,7 +200,16 @@ static int _read_bit(const OneWireBus * bus)
         gpio_set_level(bus->gpio, 1);  // Reset the output level for the next output
         _us_delay(bus->timing->E);
 
+#ifdef PHY_DEBUG
+        gpio_set_level(PHY_DEBUG_GPIO, 1);
+#endif
+
         int level = gpio_get_level(bus->gpio);
+
+#ifdef PHY_DEBUG
+        gpio_set_level(PHY_DEBUG_GPIO, 0);
+#endif
+
         _us_delay(bus->timing->F);   // Complete the timeslot and 10us recovery
 
         taskEXIT_CRITICAL(&timeCriticalMutex);
@@ -453,6 +494,16 @@ void owb_init(OneWireBus * bus, int gpio)
 
         // platform specific:
         gpio_pad_select_gpio(bus->gpio);
+
+#ifdef PHY_DEBUG
+        gpio_config_t io_conf;
+        io_conf.intr_type = GPIO_INTR_DISABLE;
+        io_conf.mode = GPIO_MODE_OUTPUT;
+        io_conf.pin_bit_mask = PHY_DEBUG_GPIO_MASK;
+        io_conf.pull_down_en = GPIO_PULLDOWN_ENABLE;
+        io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+        ESP_ERROR_CHECK(gpio_config(&io_conf));
+#endif
     }
     else
     {
