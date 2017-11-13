@@ -23,7 +23,7 @@
  */
 
 /**
- * @file owb.c
+ * @file
  */
 
 #include <stddef.h>

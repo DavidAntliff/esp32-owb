@@ -23,7 +23,7 @@
  */
 
 /**
- * @file owb.h
+ * @file
  * @brief Interface definitions for the 1-Wire bus component.
  *
  * This component provides structures and functions that are useful for communicating
