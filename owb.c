@@ -2,6 +2,7 @@
  * MIT License
  *
  * Copyright (c) 2017 David Antliff
+ * Copyright (c) 2017 Chris Morgan <chmorgan@gmail.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -39,56 +40,16 @@
 #include "driver/gpio.h"
 
 #include "owb.h"
+#include "owb_gpio.h"
 
 static const char * TAG = "owb";
 
-// Define PHY_DEBUG to enable GPIO output around when the bus is sampled
-// by the master (this library). This GPIO output makes it possible to
-// validate the master's sampling using an oscilloscope.
-//
-// For the debug GPIO the idle state is low and made high before the 1-wire sample
-// point and low again after the sample point
-#undef PHY_DEBUG
-
-#ifdef PHY_DEBUG
-// Update these defines to a pin that you can access
-#define PHY_DEBUG_GPIO GPIO_NUM_27
-#define PHY_DEBUG_GPIO_MASK GPIO_SEL_27
-#endif
-
-/// @cond ignore
-struct _OneWireBus_Timing
-{
-    uint32_t A, B, C, D, E, F, G, H, I, J;
-};
-//// @endcond
-
-// 1-Wire timing delays (standard) in microseconds.
-// Labels and values are from https://www.maximintegrated.com/en/app-notes/index.mvp/id/126
-static const struct _OneWireBus_Timing _StandardTiming = {
-        6,    // A - read/write "1" master pull DQ low duration
-        64,   // B - write "0" master pull DQ low duration
-        60,   // C - write "1" master pull DQ high duration
-        10,   // D - write "0" master pull DQ high duration
-        9,    // E - read master pull DQ high duration
-        55,   // F - complete read timeslot + 10ms recovery
-        0,    // G - wait before reset
-        480,  // H - master pull DQ low duration
-        70,   // I - master pull DQ high duration
-        410,  // J - complete presence timeslot + recovery
-};
-
-static void _us_delay(uint32_t time_us)
-{
-    ets_delay_us(time_us);
-}
-
-bool _is_init(const OneWireBus * bus)
+static bool _is_init(const OneWireBus * bus)
 {
     bool ok = false;
     if (bus != NULL)
     {
-        if (bus->init)
+        if (bus->driver)
         {
             // OK
             ok = true;
@@ -103,181 +64,6 @@ bool _is_init(const OneWireBus * bus)
         ESP_LOGE(TAG, "bus is NULL");
     }
     return ok;
-}
-
-/**
- * @brief Generate a 1-Wire reset (initialization).
- * @param[in] bus Initialised bus instance.
- * @return true if device is present, otherwise false.
- */
-static bool _reset(const OneWireBus * bus)
-{
-    bool present = false;
-    portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
-    taskENTER_CRITICAL(&timeCriticalMutex);
-
-    gpio_set_direction(bus->gpio, GPIO_MODE_OUTPUT);
-    _us_delay(bus->timing->G);
-    gpio_set_level(bus->gpio, 0);  // Drive DQ low
-    _us_delay(bus->timing->H);
-    gpio_set_direction(bus->gpio, GPIO_MODE_INPUT); // Release the bus
-    gpio_set_level(bus->gpio, 1);  // Reset the output level for the next output
-    _us_delay(bus->timing->I);
-
-#ifdef PHY_DEBUG
-    gpio_set_level(PHY_DEBUG_GPIO, 1);
-#endif
-
-    int level1 = gpio_get_level(bus->gpio);
-
-#ifdef PHY_DEBUG
-    gpio_set_level(PHY_DEBUG_GPIO, 0);
-#endif
-
-    _us_delay(bus->timing->J);   // Complete the reset sequence recovery
-
-#ifdef PHY_DEBUG
-    gpio_set_level(PHY_DEBUG_GPIO, 1);
-#endif
-
-    int level2 = gpio_get_level(bus->gpio);
-
-#ifdef PHY_DEBUG
-    gpio_set_level(PHY_DEBUG_GPIO, 0);
-#endif
-
-    taskEXIT_CRITICAL(&timeCriticalMutex);
-
-    present = (level1 == 0) && (level2 == 1);   // Sample for presence pulse from slave
-    ESP_LOGD(TAG, "reset: level1 0x%x, level2 0x%x, present %d", level1, level2, present);
-
-    return present;
-}
-
-/**
- * @brief Send a 1-Wire write bit, with recovery time.
- * @param[in] bus Initialised bus instance.
- * @param[in] bit The value to send.
- */
-static void _write_bit(const OneWireBus * bus, int bit)
-{
-    int delay1 = bit ? bus->timing->A : bus->timing->C;
-    int delay2 = bit ? bus->timing->B : bus->timing->D;
-
-    portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
-    taskENTER_CRITICAL(&timeCriticalMutex);
-
-    gpio_set_direction(bus->gpio, GPIO_MODE_OUTPUT);
-    gpio_set_level(bus->gpio, 0);  // Drive DQ low
-    _us_delay(delay1);
-    gpio_set_level(bus->gpio, 1);  // Release the bus
-    _us_delay(delay2);
-
-    taskEXIT_CRITICAL(&timeCriticalMutex);
-}
-
-/**
- * @brief Read a bit from the 1-Wire bus and return the value, with recovery time.
- * @param[in] bus Initialised bus instance.
- */
-static int _read_bit(const OneWireBus * bus)
-{
-    int result = 0;
-    portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
-    taskENTER_CRITICAL(&timeCriticalMutex);
-
-    gpio_set_direction(bus->gpio, GPIO_MODE_OUTPUT);
-    gpio_set_level(bus->gpio, 0);  // Drive DQ low
-    _us_delay(bus->timing->A);
-    gpio_set_direction(bus->gpio, GPIO_MODE_INPUT); // Release the bus
-    gpio_set_level(bus->gpio, 1);  // Reset the output level for the next output
-    _us_delay(bus->timing->E);
-
-#ifdef PHY_DEBUG
-    gpio_set_level(PHY_DEBUG_GPIO, 1);
-#endif
-
-    int level = gpio_get_level(bus->gpio);
-
-#ifdef PHY_DEBUG
-    gpio_set_level(PHY_DEBUG_GPIO, 0);
-#endif
-
-    _us_delay(bus->timing->F);   // Complete the timeslot and 10us recovery
-
-    taskEXIT_CRITICAL(&timeCriticalMutex);
-
-    result = level & 0x01;
-
-    return result;
-}
-
-/**
- * @brief Write 1-Wire data byte.
- * @param[in] bus Initialised bus instance.
- * @param[in] data Value to write.
- */
-static void _write_byte(const OneWireBus * bus, uint8_t data)
-{
-    ESP_LOGD(TAG, "write 0x%02x", data);
-    for (int i = 0; i < 8; ++i)
-    {
-        _write_bit(bus, data & 0x01);
-        data >>= 1;
-    }
-}
-
-/**
- * @brief Read 1-Wire data byte from  bus.
- * @param[in] bus Initialised bus instance.
- * @return Byte value read from bus.
- */
-static uint8_t _read_byte(const OneWireBus * bus)
-{
-    uint8_t result = 0;
-    for (int i = 0; i < 8; ++i)
-    {
-        result >>= 1;
-        if (_read_bit(bus))
-        {
-            result |= 0x80;
-        }
-    }
-    ESP_LOGD(TAG, "read 0x%02x", result);
-
-    return result;
-}
-
-/**
- * @param Read a block of bytes from 1-Wire bus.
- * @param[in] bus Initialised bus instance.
- * @param[in,out] buffer Pointer to buffer to receive read data.
- * @param[in] len Number of bytes to read, must not exceed length of receive buffer.
- * @return Pointer to receive buffer.
- */
-static uint8_t * _read_block(const OneWireBus * bus, uint8_t * buffer, unsigned int len)
-{
-    for (int i = 0; i < len; ++i)
-    {
-        *buffer++ = _read_byte(bus);
-    }
-    return buffer;
-}
-
-/**
- * @param Write a block of bytes from 1-Wire bus.
- * @param[in] bus Initialised bus instance.
- * @param[in] buffer Pointer to buffer to write data from.
- * @param[in] len Number of bytes to write.
- * @return Pointer to write buffer.
- */
-static const uint8_t * _write_block(const OneWireBus * bus, const uint8_t * buffer, unsigned int len)
-{
-    for (int i = 0; i < len; ++i)
-    {
-        _write_byte(bus, buffer[i]);
-    }
-    return buffer;
 }
 
 /**
@@ -322,8 +108,11 @@ static uint8_t _calc_crc_block(uint8_t crc, const uint8_t * buffer, size_t len)
     return crc;
 }
 
-/* @return true if a device was found, false if not */
-static bool _search(const OneWireBus * bus, OneWireBus_SearchState * state)
+/**
+ * @param[out] is_found true if a device was found, false if not
+ * @return status
+ */
+static owb_status _search(const OneWireBus * bus, OneWireBus_SearchState * state, bool *is_found)
 {
     // Based on https://www.maximintegrated.com/en/app-notes/index.mvp/id/187
 
@@ -331,45 +120,53 @@ static bool _search(const OneWireBus * bus, OneWireBus_SearchState * state)
     int id_bit_number = 1;
     int last_zero = 0;
     int rom_byte_number = 0;
-    int id_bit = 0;
-    int cmp_id_bit = 0;
+    uint8_t id_bit = 0;
+    uint8_t cmp_id_bit = 0;
     uint8_t rom_byte_mask = 1;
     uint8_t search_direction = 0;
     bool search_result = false;
     uint8_t crc8 = 0;
+    owb_status status;
 
     // if the last call was not the last one
     if (!state->last_device_flag)
     {
         // 1-Wire reset
-        if (!_reset(bus))
+        bool is_present;
+        bus->driver->reset(bus, &is_present);
+        if (!is_present)
         {
             // reset the search
             state->last_discrepancy = 0;
             state->last_device_flag = false;
             state->last_family_discrepancy = 0;
-            return false;
+            *is_found = false;
+            return OWB_STATUS_OK;
         }
 
         // issue the search command
-        _write_byte(bus, OWB_ROM_SEARCH);
+        bus->driver->write_bits(bus, OWB_ROM_SEARCH, 8);
 
         // loop to do the search
         do
         {
-            // read a bit and its complement
-            id_bit = _read_bit(bus);
-            cmp_id_bit = _read_bit(bus);
+            id_bit = cmp_id_bit = 0;
 
-            // check for no devices on 1-wire
-            if ((id_bit == 1) && (cmp_id_bit == 1))
+            // read a bit and its complement
+            bus->driver->read_bits(bus, &id_bit, 1);
+            bus->driver->read_bits(bus, &cmp_id_bit, 1);
+
+            // check for no devices on 1-wire (signal level is high in both bit reads)
+            if (id_bit && cmp_id_bit)
+            {
                 break;
-            else
+            } else
             {
                 // all devices coupled have 0 or 1
                 if (id_bit != cmp_id_bit)
-                    search_direction = id_bit;  // bit write value for search
-                else
+                {
+                    search_direction = (id_bit) ? 1 : 0;  // bit write value for search
+                } else
                 {
                     // if this discrepancy if before the Last Discrepancy
                     // on a previous next then pick the same as last time
@@ -398,7 +195,7 @@ static bool _search(const OneWireBus * bus, OneWireBus_SearchState * state)
                     state->rom_code.bytes[rom_byte_number] &= ~rom_byte_mask;
 
                 // serial number search direction write bit
-                _write_bit(bus, search_direction);
+                bus->driver->write_bits(bus, search_direction, 1);
 
                 // increment the byte counter id_bit_number
                 // and shift the mask rom_byte_mask
@@ -408,7 +205,7 @@ static bool _search(const OneWireBus * bus, OneWireBus_SearchState * state)
                 // if the mask is 0 then go to new SerialNum byte rom_byte_number and reset mask
                 if (rom_byte_mask == 0)
                 {
-                    crc8 = _calc_crc(crc8, state->rom_code.bytes[rom_byte_number]);  // accumulate the CRC
+                    crc8 = owb_crc8_byte(crc8, state->rom_code.bytes[rom_byte_number]);  // accumulate the CRC
                     rom_byte_number++;
                     rom_byte_mask = 1;
                 }
@@ -439,66 +236,26 @@ static bool _search(const OneWireBus * bus, OneWireBus_SearchState * state)
         search_result = false;
     }
 
-    return search_result;
-}
+    status = OWB_STATUS_OK;
 
+    *is_found = search_result;
+
+    return status;
+}
 
 // Public API
 
-OneWireBus * owb_malloc()
-{
-    OneWireBus * bus = malloc(sizeof(*bus));
-    if (bus != NULL)
-    {
-        memset(bus, 0, sizeof(*bus));
-        ESP_LOGD(TAG, "malloc %p", bus);
-    }
-    else
-    {
-        ESP_LOGE(TAG, "malloc failed");
-    }
-    return bus;
-}
-
-void owb_free(OneWireBus ** bus)
-{
-    if (bus != NULL && (*bus != NULL))
-    {
-        ESP_LOGD(TAG, "free %p", *bus);
-        free(*bus);
-        *bus = NULL;
-    }
-}
-
-owb_status owb_init(OneWireBus * bus, int gpio)
+owb_status owb_uninitialize(OneWireBus * bus)
 {
     owb_status status;
 
-    if (bus != NULL)
+    if(!_is_init(bus))
     {
-        bus->gpio = gpio;
-        bus->timing = &_StandardTiming;
-        bus->init = true;
-
-        // platform specific:
-        gpio_pad_select_gpio(bus->gpio);
-
-#ifdef PHY_DEBUG
-        gpio_config_t io_conf;
-        io_conf.intr_type = GPIO_INTR_DISABLE;
-        io_conf.mode = GPIO_MODE_OUTPUT;
-        io_conf.pin_bit_mask = PHY_DEBUG_GPIO_MASK;
-        io_conf.pull_down_en = GPIO_PULLDOWN_ENABLE;
-        io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
-        ESP_ERROR_CHECK(gpio_config(&io_conf));
-#endif
-
+        status = OWB_STATUS_NOT_INITIALIZED;
+    } else
+    {
+        bus->driver->uninitialize(bus);
         status = OWB_STATUS_OK;
-    }
-    else
-    {
-        ESP_LOGE(TAG, "bus is NULL");
-        status = OWB_STATUS_PARAMETER_NULL;
     }
 
     return status;
@@ -539,10 +296,13 @@ owb_status owb_read_rom(const OneWireBus * bus, OneWireBus_ROMCode *rom_code)
         status = OWB_STATUS_NOT_INITIALIZED;
     } else
     {
-        if (_reset(bus))
+        bool is_present;
+        bus->driver->reset(bus, &is_present);
+        if (is_present)
         {
-            _write_byte(bus, OWB_ROM_READ);
-            _read_block(bus, rom_code->bytes, sizeof(OneWireBus_ROMCode));
+            uint8_t value = OWB_ROM_READ;
+            bus->driver->write_bits(bus, value, 8);
+            owb_read_bytes(bus, rom_code->bytes, sizeof(OneWireBus_ROMCode));
 
             if (bus->use_crc)
             {
@@ -591,7 +351,9 @@ owb_status owb_verify_rom(const OneWireBus * bus, OneWireBus_ROMCode rom_code, b
             .last_device_flag = false,
         };
 
-        if (_search(bus, &state))
+        bool is_found;
+        _search(bus, &state, &is_found);
+        if (is_found)
         {
             result = true;
             for (int i = 0; i < sizeof(state.rom_code.bytes) && result; ++i)
@@ -622,7 +384,7 @@ owb_status owb_reset(const OneWireBus * bus, bool* a_device_present)
         status = OWB_STATUS_NOT_INITIALIZED;
     } else
     {
-        *a_device_present = _reset(bus);
+        bus->driver->reset(bus, a_device_present);
         status = OWB_STATUS_OK;
     }
 
@@ -641,7 +403,7 @@ owb_status owb_write_byte(const OneWireBus * bus, uint8_t data)
         status = OWB_STATUS_NOT_INITIALIZED;
     } else
     {
-        _write_byte(bus, data);
+        bus->driver->write_bits(bus, data, 8);
         status = OWB_STATUS_OK;
     }
 
@@ -660,7 +422,7 @@ owb_status owb_read_byte(const OneWireBus * bus, uint8_t *out)
         status = OWB_STATUS_NOT_INITIALIZED;
     } else
     {
-        *out = _read_byte(bus);
+        bus->driver->read_bits(bus, out, 8);
         status = OWB_STATUS_OK;
     }
 
@@ -679,7 +441,13 @@ owb_status owb_read_bytes(const OneWireBus * bus, uint8_t * buffer, unsigned int
         status = OWB_STATUS_NOT_INITIALIZED;
     } else
     {
-        _read_block(bus, buffer, len);
+        for (int i = 0; i < len; ++i)
+        {
+            uint8_t out;
+            bus->driver->read_bits(bus, &out, 8);
+            buffer[i] = out;
+        }
+
         status = OWB_STATUS_OK;
     }
 
@@ -698,7 +466,11 @@ owb_status owb_write_bytes(const OneWireBus * bus, const uint8_t * buffer, unsig
         status = OWB_STATUS_NOT_INITIALIZED;
     } else
     {
-        _write_block(bus, buffer, len);
+        for (int i = 0; i < len; i++)
+        {
+            bus->driver->write_bits(bus, buffer[i], 8);
+        }
+
         status = OWB_STATUS_OK;
     }
 
@@ -717,7 +489,7 @@ owb_status owb_write_rom_code(const OneWireBus * bus, OneWireBus_ROMCode rom_cod
         status = OWB_STATUS_NOT_INITIALIZED;
     } else
     {
-        _write_block(bus, (uint8_t *)&rom_code, sizeof(rom_code));
+        owb_write_bytes(bus, (uint8_t*)&rom_code, sizeof(rom_code));
         status = OWB_STATUS_OK;
     }
 
@@ -736,8 +508,8 @@ uint8_t owb_crc8_bytes(uint8_t crc, const uint8_t * data, size_t len)
 
 owb_status owb_search_first(const OneWireBus * bus, OneWireBus_SearchState * state, bool* found_device)
 {
+    bool result;
     owb_status status;
-    bool result = false;
 
     if(!bus || !state || !found_device)
     {
@@ -751,7 +523,7 @@ owb_status owb_search_first(const OneWireBus * bus, OneWireBus_SearchState * sta
         state->last_discrepancy = 0;
         state->last_family_discrepancy = 0;
         state->last_device_flag = false;
-        result = _search(bus, state);
+        _search(bus, state, &result);
         status = OWB_STATUS_OK;
 
         *found_device = result;
@@ -773,7 +545,7 @@ owb_status owb_search_next(const OneWireBus * bus, OneWireBus_SearchState * stat
         status = OWB_STATUS_NOT_INITIALIZED;
     } else
     {
-        result = _search(bus, state);
+        _search(bus, state, &result);
         status = OWB_STATUS_OK;
 
         *found_device = result;

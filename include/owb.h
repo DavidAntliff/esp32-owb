@@ -2,6 +2,7 @@
  * MIT License
  *
  * Copyright (c) 2017 David Antliff
+ * Copyright (c) 2017 Chris Morgan <chmorgan@gmail.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -37,6 +38,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,15 +52,17 @@ extern "C" {
 #define OWB_ROM_SKIP          0xCC
 #define OWB_ROM_SEARCH_ALARM  0xEC
 
+struct owb_driver;
+
 /**
  * @brief Structure containing 1-Wire bus information relevant to a single instance.
  */
 typedef struct
 {
-    bool init;                                  ///< True if struct has been initialised, otherwise false.
-    int gpio;                                   ///< Value of GPIO connected to 1-Wire bus
     const struct _OneWireBus_Timing * timing;   ///< Pointer to timing information
     bool use_crc;                               ///< True if CRC checks are to be used when retrieving information from a device on the bus
+
+    const struct owb_driver *driver;
 } OneWireBus;
 
 /**
@@ -103,27 +107,30 @@ typedef enum
     OWB_STATUS_CRC_FAILED
 } owb_status;
 
-/**
- * @brief Construct a new 1-Wire bus instance.
- *        New instance should be initialised before calling other functions.
- * @return Pointer to new bus instance, or NULL if it cannot be created.
- */
-OneWireBus * owb_malloc(void);
+/** NOTE: Driver assumes that (*init) was called prior to any other methods */
+struct owb_driver
+{
+    const char* name;
+
+    owb_status (*uninitialize)(const OneWireBus * bus);
+
+    owb_status (*reset)(const OneWireBus * bus, bool *is_present);
+
+    /** NOTE: The data is shifted out of the low bits, eg. it is written in the order of lsb to msb */
+    owb_status (*write_bits)(const OneWireBus *bus, uint8_t out, int number_of_bits_to_write);
+
+    /** NOTE: Data is read into the high bits, eg. each bit read is shifted down before the next bit is read */
+    owb_status (*read_bits)(const OneWireBus *bus, uint8_t *in, int number_of_bits_to_read);
+};
+
+#define container_of(ptr, type, member) ({                      \
+        const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
+        (type *)( (char *)__mptr - offsetof(type,member) );})
 
 /**
- * @brief Delete an existing device info instance.
- * @param[in] bus Pointer to bus instance.
- * @param[in,out] ds18b20_info Pointer to device info instance that will be freed and set to NULL.
+ * @brief call to release resources after completing use of the OneWireBus
  */
-void owb_free(OneWireBus ** bus);
-
-/**
- * @brief Initialise a 1-Wire bus instance with the specified GPIO.
- * @param[in] bus Pointer to bus instance.
- * @param[in] gpio GPIO number to associate with device.
- * @return status
- */
-owb_status owb_init(OneWireBus * bus, int gpio);
+owb_status owb_uninitialize(OneWireBus * bus);
 
 /**
  * @brief Enable or disable use of CRC checks on device communications.
@@ -250,6 +257,7 @@ owb_status owb_search_next(const OneWireBus * bus, OneWireBus_SearchState * stat
  */
 char * owb_string_from_rom_code(OneWireBus_ROMCode rom_code, char * buffer, size_t len);
 
+#include "owb_gpio.h"
 
 #ifdef __cplusplus
 }
