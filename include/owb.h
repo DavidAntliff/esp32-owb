@@ -94,6 +94,15 @@ typedef struct
     int last_device_flag;
 } OneWireBus_SearchState;
 
+typedef enum
+{
+    OWB_STATUS_OK,
+    OWB_STATUS_NOT_INITIALIZED,
+    OWB_STATUS_PARAMETER_NULL,
+    OWB_STATUS_DEVICE_NOT_RESPONDING,
+    OWB_STATUS_CRC_FAILED
+} owb_status;
+
 /**
  * @brief Construct a new 1-Wire bus instance.
  *        New instance should be initialised before calling other functions.
@@ -112,76 +121,84 @@ void owb_free(OneWireBus ** bus);
  * @brief Initialise a 1-Wire bus instance with the specified GPIO.
  * @param[in] bus Pointer to bus instance.
  * @param[in] gpio GPIO number to associate with device.
+ * @return status
  */
-void owb_init(OneWireBus * bus, int gpio);
+owb_status owb_init(OneWireBus * bus, int gpio);
 
 /**
  * @brief Enable or disable use of CRC checks on device communications.
  * @param[in] bus Pointer to initialised bus instance.
  * @param[in] use_crc True to enable CRC checks, false to disable.
+ * @return status
  */
-void owb_use_crc(OneWireBus * bus, bool use_crc);
+owb_status owb_use_crc(OneWireBus * bus, bool use_crc);
 
 /**
  * @brief Read ROM code from device - only works when there is a single device on the bus.
  * @param[in] bus Pointer to initialised bus instance.
- * @return The value read from the device's ROM.
+ * @param[out] rom_code the value read from the device's rom
+ * @return status
  */
-OneWireBus_ROMCode owb_read_rom(const OneWireBus * bus);
+owb_status owb_read_rom(const OneWireBus * bus, OneWireBus_ROMCode *rom_code);
 
 /**
  * @brief Verify the device specified by ROM code is present.
  * @param[in] bus Pointer to initialised bus instance.
  * @param[in] rom_code ROM code to verify.
- * @return true if device is present, false if not present.
+ * @param[out] is_present set to true if a device is present, false if not
+ * @return status
  */
-bool owb_verify_rom(const OneWireBus * bus, OneWireBus_ROMCode rom_code);
+owb_status owb_verify_rom(const OneWireBus * bus, OneWireBus_ROMCode rom_code, bool* is_present);
 
 /**
  * @brief Reset the 1-Wire bus.
  * @param[in] bus Pointer to initialised bus instance.
- * @return True if at least one device is present on the bus.
+ * @param[out] is_present set to true if at least one device is present on the bus
+ * @return status
  */
-bool owb_reset(const OneWireBus * bus);
+owb_status owb_reset(const OneWireBus * bus, bool* a_device_present);
 
 /**
  * @brief Write a single byte to the 1-Wire bus.
  * @param[in] bus Pointer to initialised bus instance.
  * @param[in] data Byte value to write to bus.
+ * @return status
  */
-void owb_write_byte(const OneWireBus * bus, uint8_t data);
+owb_status owb_write_byte(const OneWireBus * bus, uint8_t data);
 
 /**
  * @brief Read a single byte from the 1-Wire bus.
  * @param[in] bus Pointer to initialised bus instance.
- * @return The byte value read from the bus.
+ * @param[out] out The byte value read from the bus.
+ * @return status
  */
-uint8_t owb_read_byte(const OneWireBus * bus);
+owb_status owb_read_byte(const OneWireBus * bus, uint8_t *out);
 
 /**
  * @brief Read a number of bytes from the 1-Wire bus.
  * @param[in] bus Pointer to initialised bus instance.
  * @param[in, out] buffer Pointer to buffer to receive read data.
  * @param[in] len Number of bytes to read, must not exceed length of receive buffer.
- * @return Pointer to receive buffer.
+ * @return status.
  */
-uint8_t * owb_read_bytes(const OneWireBus * bus, uint8_t * buffer, size_t len);
+owb_status owb_read_bytes(const OneWireBus * bus, uint8_t * buffer, size_t len);
 
 /**
  * @brief Write a number of bytes to the 1-Wire bus.
  * @param[in] bus Pointer to initialised bus instance.
  * @param[in] buffer Pointer to buffer to write data from.
  * @param[in] len Number of bytes to write.
- * @return Pointer to write buffer.
+ * @return status
  */
-const uint8_t * owb_write_bytes(const OneWireBus * bus, const uint8_t * buffer, size_t len);
+owb_status owb_write_bytes(const OneWireBus * bus, const uint8_t * buffer, size_t len);
 
 /**
  * @brief Write a ROM code to the 1-Wire bus ensuring LSB is sent first.
  * @param[in] bus Pointer to initialised bus instance.
  * @param[in] rom_code ROM code to write to bus.
+ * @return status
  */
-void owb_write_rom_code(const OneWireBus * bus, OneWireBus_ROMCode rom_code);
+owb_status owb_write_rom_code(const OneWireBus * bus, OneWireBus_ROMCode rom_code);
 
 /**
  * @brief 1-Wire 8-bit CRC lookup.
@@ -206,20 +223,22 @@ uint8_t owb_crc8_bytes(uint8_t crc, const uint8_t * data, size_t len);
  * @brief Locates the first device on the 1-Wire bus, if present.
  * @param[in] bus Pointer to initialised bus instance.
  * @param[in,out] state Pointer to an existing search state structure.
- * @return True if a device is found, false if no devices are found.
+ * @param[out] found_device True if a device is found, false if no devices are found.
  *         If a device is found, the ROM Code can be obtained from the state.
+ * @return status
  */
-bool owb_search_first(const OneWireBus * bus, OneWireBus_SearchState * state);
+owb_status owb_search_first(const OneWireBus * bus, OneWireBus_SearchState * state, bool *found_device);
 
 /**
  * @brief Locates the next device on the 1-Wire bus, if present, starting from
  *        the provided state. Further calls will yield additional devices, if present.
  * @param[in] bus Pointer to initialised bus instance.
  * @param[in,out] state Pointer to an existing search state structure.
- * @return True if a device is found, false if no devices are found.
+ * @param[out] found_device True if a device is found, false if no devices are found.
  *         If a device is found, the ROM Code can be obtained from the state.
+ * @return status
  */
-bool owb_search_next(const OneWireBus * bus, OneWireBus_SearchState * state);
+owb_status owb_search_next(const OneWireBus * bus, OneWireBus_SearchState * state, bool *found_device);
 
 /**
  * @brief Create a string representation of a ROM code.
@@ -227,6 +246,7 @@ bool owb_search_next(const OneWireBus * bus, OneWireBus_SearchState * state);
  * @param[out] buffer The destination for the string representation. It will be null terminated.
  * @param[in] len The length of the buffer in bytes. 64-bit ROM codes require 16 characters
  *                to represent as a string, plus a null terminator, for 17 bytes.
+ * @return pointer to the byte beyond the last byte written
  */
 char * owb_string_from_rom_code(OneWireBus_ROMCode rom_code, char * buffer, size_t len);
 
