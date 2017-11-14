@@ -484,8 +484,10 @@ void owb_free(OneWireBus ** bus)
     }
 }
 
-void owb_init(OneWireBus * bus, int gpio)
+owb_status owb_init(OneWireBus * bus, int gpio)
 {
+    owb_status status;
+
     if (bus != NULL)
     {
         bus->gpio = gpio;
@@ -504,54 +506,82 @@ void owb_init(OneWireBus * bus, int gpio)
         io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
         ESP_ERROR_CHECK(gpio_config(&io_conf));
 #endif
+
+        status = OWB_STATUS_OK;
     }
     else
     {
         ESP_LOGE(TAG, "bus is NULL");
+        status = OWB_STATUS_ERR;
     }
+
+    return status;
 }
 
-void owb_use_crc(OneWireBus * bus, bool use_crc)
+owb_status owb_use_crc(OneWireBus * bus, bool use_crc)
 {
+    owb_status status;
+
     if (_is_init(bus))
     {
         bus->use_crc = use_crc;
         ESP_LOGD(TAG, "use_crc %d", bus->use_crc);
+
+        status = OWB_STATUS_OK;
+    } else
+    {
+        status = OWB_STATUS_NOT_INITIALIZED;
     }
+
+    return status;
 }
 
-OneWireBus_ROMCode owb_read_rom(const OneWireBus * bus)
+owb_status owb_read_rom(const OneWireBus * bus, OneWireBus_ROMCode *rom_code)
 {
-    OneWireBus_ROMCode rom_code = {0};
+    owb_status status = OWB_STATUS_ERR;
+
+    memset(rom_code, 0, sizeof(OneWireBus_ROMCode));
+
     if (_is_init(bus))
     {
         if (_reset(bus))
         {
             _write_byte(bus, OWB_ROM_READ);
-            _read_block(bus, rom_code.bytes, sizeof(rom_code));
+            _read_block(bus, rom_code->bytes, sizeof(OneWireBus_ROMCode));
 
             if (bus->use_crc)
             {
-                if (owb_crc8_bytes(0, rom_code.bytes, sizeof(rom_code)) != 0)
+                if (owb_crc8_bytes(0, rom_code->bytes, sizeof(OneWireBus_ROMCode)) != 0)
                 {
                     ESP_LOGE(TAG, "CRC failed");
-                    memset(rom_code.bytes, 0, sizeof(rom_code));
+                    memset(rom_code->bytes, 0, sizeof(OneWireBus_ROMCode));
+                } else
+                {
+                    status = OWB_STATUS_OK;
                 }
+            } else
+            {
+                status = OWB_STATUS_OK;
             }
             char rom_code_s[17];
-            owb_string_from_rom_code(rom_code, rom_code_s, sizeof(rom_code_s));
+            owb_string_from_rom_code(*rom_code, rom_code_s, sizeof(rom_code_s));
             ESP_LOGD(TAG, "rom_code %s", rom_code_s);
         }
         else
         {
             ESP_LOGE(TAG, "ds18b20 device not responding");
         }
+    } else
+    {
+        status = OWB_STATUS_NOT_INITIALIZED;
     }
-    return rom_code;
+
+    return status;
 }
 
-bool owb_verify_rom(const OneWireBus * bus, OneWireBus_ROMCode rom_code)
+owb_status owb_verify_rom(const OneWireBus * bus, OneWireBus_ROMCode rom_code, bool* is_present)
 {
+    owb_status status;
     bool result = false;
     if (_is_init(bus))
     {
@@ -570,38 +600,112 @@ bool owb_verify_rom(const OneWireBus * bus, OneWireBus_ROMCode rom_code)
             }
             ESP_LOGD(TAG, "rom code %sfound", result ? "" : "not ");
         }
+
+        status = OWB_STATUS_OK;
+    } else
+    {
+        status = OWB_STATUS_NOT_INITIALIZED;
     }
-    return result;
+
+    *is_present = result;
+
+    return status;
 }
 
-bool owb_reset(const OneWireBus * bus)
+owb_status owb_reset(const OneWireBus * bus, bool* a_device_present)
 {
-    return _reset(bus);
+    owb_status status;
+
+    if (_is_init(bus))
+    {
+        *a_device_present = _reset(bus);
+        status = OWB_STATUS_OK;
+    } else
+    {
+        status = OWB_STATUS_NOT_INITIALIZED;
+    }
+
+    return status;
 }
 
-void owb_write_byte(const OneWireBus * bus, uint8_t data)
+owb_status owb_write_byte(const OneWireBus * bus, uint8_t data)
 {
-    _write_byte(bus, data);
+    owb_status status;
+
+    if (_is_init(bus))
+    {
+        _write_byte(bus, data);
+        status = OWB_STATUS_OK;
+    } else
+    {
+        status = OWB_STATUS_NOT_INITIALIZED;
+    }
+
+    return status;
 }
 
-uint8_t owb_read_byte(const OneWireBus * bus)
+owb_status owb_read_byte(const OneWireBus * bus, uint8_t *out)
 {
-    return _read_byte(bus);
+    owb_status status;
+
+    if (_is_init(bus))
+    {
+        *out = _read_byte(bus);
+        status = OWB_STATUS_OK;
+    } else
+    {
+        status = OWB_STATUS_NOT_INITIALIZED;
+    }
+
+    return status;
 }
 
-uint8_t * owb_read_bytes(const OneWireBus * bus, uint8_t * buffer, unsigned int len)
+owb_status owb_read_bytes(const OneWireBus * bus, uint8_t * buffer, unsigned int len)
 {
-    return _read_block(bus, buffer, len);
+    owb_status status;
+
+    if (_is_init(bus))
+    {
+        _read_block(bus, buffer, len);
+        status = OWB_STATUS_OK;
+    } else
+    {
+        status = OWB_STATUS_NOT_INITIALIZED;
+    }
+
+    return status;
 }
 
-const uint8_t * owb_write_bytes(const OneWireBus * bus, const uint8_t * buffer, unsigned int len)
+owb_status owb_write_bytes(const OneWireBus * bus, const uint8_t * buffer, unsigned int len)
 {
-    return _write_block(bus, buffer, len);
+    owb_status status;
+
+    if (_is_init(bus))
+    {
+        _write_block(bus, buffer, len);
+        status = OWB_STATUS_OK;
+    } else
+    {
+        status = OWB_STATUS_NOT_INITIALIZED;
+    }
+
+    return status;
 }
 
-void owb_write_rom_code(const OneWireBus * bus, OneWireBus_ROMCode rom_code)
+owb_status owb_write_rom_code(const OneWireBus * bus, OneWireBus_ROMCode rom_code)
 {
-    _write_block(bus, (uint8_t *)&rom_code, sizeof(rom_code));
+    owb_status status;
+
+    if (_is_init(bus))
+    {
+        _write_block(bus, (uint8_t *)&rom_code, sizeof(rom_code));
+        status = OWB_STATUS_OK;
+    } else
+    {
+        status = OWB_STATUS_NOT_INITIALIZED;
+    }
+
+    return status;
 }
 
 uint8_t owb_crc8_byte(uint8_t crc, uint8_t data)
@@ -614,36 +718,60 @@ uint8_t owb_crc8_bytes(uint8_t crc, const uint8_t * data, size_t len)
     return _calc_crc_block(crc, data, len);
 }
 
-bool owb_search_first(const OneWireBus * bus, OneWireBus_SearchState * state)
+owb_status owb_search_first(const OneWireBus * bus, OneWireBus_SearchState * state, bool* found_device)
 {
+    owb_status status;
     bool result = false;
-    if (state != NULL)
+
+    if (_is_init(bus))
     {
-        memset(&state->rom_code, 0, sizeof(state->rom_code));
-        state->last_discrepancy = 0;
-        state->last_family_discrepancy = 0;
-        state->last_device_flag = false;
-        result = _search(bus, state);
-    }
-    else
+        if (state != NULL)
+        {
+            memset(&state->rom_code, 0, sizeof(state->rom_code));
+            state->last_discrepancy = 0;
+            state->last_family_discrepancy = 0;
+            state->last_device_flag = false;
+            result = _search(bus, state);
+            status = OWB_STATUS_OK;
+        }
+        else
+        {
+            ESP_LOGE(TAG, "state is NULL");
+            status = OWB_STATUS_ERR;
+        }
+        *found_device = result;
+    } else
     {
-        ESP_LOGE(TAG, "state is NULL");
+        status = OWB_STATUS_NOT_INITIALIZED;
     }
-    return result;
+
+    return status;
 }
 
-bool owb_search_next(const OneWireBus * bus, OneWireBus_SearchState * state)
+owb_status owb_search_next(const OneWireBus * bus, OneWireBus_SearchState * state, bool* found_device)
 {
+    owb_status status;
     bool result = false;
-    if (state != NULL)
+
+    if (_is_init(bus))
     {
-        result = _search(bus, state);
-    }
-    else
+        if (state != NULL)
+        {
+            result = _search(bus, state);
+            status = OWB_STATUS_OK;
+        }
+        else
+        {
+            ESP_LOGE(TAG, "state is NULL");
+            status = OWB_STATUS_ERR;
+        }
+        *found_device = result;
+    } else
     {
-        ESP_LOGE(TAG, "state is NULL");
+        status = OWB_STATUS_NOT_INITIALIZED;
     }
-    return result;
+
+    return status;
 }
 
 char * owb_string_from_rom_code(OneWireBus_ROMCode rom_code, char * buffer, size_t len)
