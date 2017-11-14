@@ -2,6 +2,7 @@
  * MIT License
  *
  * Copyright (c) 2017 David Antliff
+ * Copyright (c) 2017 Chris Morgan <chmorgan@gmail.com>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -50,15 +51,18 @@ extern "C" {
 #define OWB_ROM_SKIP          0xCC
 #define OWB_ROM_SEARCH_ALARM  0xEC
 
+struct owb_driver;
+
 /**
  * @brief Structure containing 1-Wire bus information relevant to a single instance.
  */
 typedef struct
 {
-    bool init;                                  ///< True if struct has been initialised, otherwise false.
     int gpio;                                   ///< Value of GPIO connected to 1-Wire bus
     const struct _OneWireBus_Timing * timing;   ///< Pointer to timing information
     bool use_crc;                               ///< True if CRC checks are to be used when retrieving information from a device on the bus
+
+    struct owb_driver *driver;
 } OneWireBus;
 
 /**
@@ -100,6 +104,17 @@ typedef enum
     OWB_STATUS_NOT_INITIALIZED,
     OWB_STATUS_ERR
 } owb_status;
+
+/** NOTE: Driver assumes that (*init) was called prior to any other methods */
+struct owb_driver
+{
+    const char* name;
+    owb_status (*init)(OneWireBus * bus, int gpio);
+    owb_status (*reset)(const OneWireBus * bus, bool *is_present);
+    owb_status (*search)(const OneWireBus * bus, OneWireBus_SearchState * state, bool *is_found);
+    owb_status (*write_bytes)(const OneWireBus * bus, const uint8_t *buf, size_t count);
+    owb_status (*read_bytes)(const OneWireBus * bus, uint8_t *buf, size_t count);
+};
 
 /**
  * @brief Construct a new 1-Wire bus instance.
@@ -247,7 +262,6 @@ owb_status owb_search_next(const OneWireBus * bus, OneWireBus_SearchState * stat
  * @return pointer to the byte beyond the last byte written
  */
 char * owb_string_from_rom_code(OneWireBus_ROMCode rom_code, char * buffer, size_t len);
-
 
 #ifdef __cplusplus
 }
