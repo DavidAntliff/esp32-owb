@@ -237,7 +237,7 @@ static uint8_t _read_byte(const OneWireBus * bus)
  * @param[in] len Number of bytes to read, must not exceed length of receive buffer.
  * @return status
  */
-static owb_status _read_block(const OneWireBus * bus, uint8_t * buffer, unsigned int len)
+static owb_status _read_block(const OneWireBus * bus, uint8_t * buffer, size_t len)
 {
     for (int i = 0; i < len; ++i)
     {
@@ -254,7 +254,7 @@ static owb_status _read_block(const OneWireBus * bus, uint8_t * buffer, unsigned
  * @param[in] len Number of bytes to write.
  * @return status
  */
-static owb_status _write_block(const OneWireBus * bus, const uint8_t * buffer, unsigned int len)
+static owb_status _write_block(const OneWireBus * bus, const uint8_t * buffer, size_t len)
 {
     for (int i = 0; i < len; ++i)
     {
