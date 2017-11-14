@@ -58,7 +58,6 @@ struct owb_driver;
  */
 typedef struct
 {
-    int gpio;                                   ///< Value of GPIO connected to 1-Wire bus
     const struct _OneWireBus_Timing * timing;   ///< Pointer to timing information
     bool use_crc;                               ///< True if CRC checks are to be used when retrieving information from a device on the bus
 
@@ -115,6 +114,10 @@ struct owb_driver
     owb_status (*write_bytes)(const OneWireBus * bus, const uint8_t *buf, size_t count);
     owb_status (*read_bytes)(const OneWireBus * bus, uint8_t *buf, size_t count);
 };
+
+#define container_of(ptr, type, member) ({                      \
+        const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
+        (type *)( (char *)__mptr - offsetof(type,member) );})
 
 /**
  * @brief Construct a new 1-Wire bus instance.

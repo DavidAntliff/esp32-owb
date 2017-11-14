@@ -43,6 +43,17 @@
 
 static const char * TAG = "owb_gpio";
 
+struct gpio_info
+{
+    int gpio; ///< Value of GPIO connected to 1-Wire bus
+};
+
+struct gpio_driver
+{
+    const struct owb_driver ftable;
+    struct gpio_info info;
+};
+
 // Define PHY_DEBUG to enable GPIO output around when the bus is sampled
 // by the master (this library). This GPIO output makes it possible to
 // validate the master's sampling using an oscilloscope.
@@ -84,6 +95,8 @@ static void _us_delay(uint32_t time_us)
     ets_delay_us(time_us);
 }
 
+#define info_of_driver(d) &(container_of(d, struct gpio_driver, ftable)->info)
+
 /**
  * @brief Generate a 1-Wire reset (initialization).
  * @param[in] bus Initialised bus instance.
@@ -96,19 +109,22 @@ static owb_status _reset(const OneWireBus * bus, bool * is_present)
     portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
     taskENTER_CRITICAL(&timeCriticalMutex);
 
-    gpio_set_direction(bus->gpio, GPIO_MODE_OUTPUT);
+//    struct gpio_info *i = info_of_driver(bus->driver);
+    struct gpio_info *i = &(container_of(bus->driver, struct gpio_driver, ftable)->info);
+
+    gpio_set_direction(i->gpio, GPIO_MODE_OUTPUT);
     _us_delay(bus->timing->G);
-    gpio_set_level(bus->gpio, 0);  // Drive DQ low
+    gpio_set_level(i->gpio, 0);  // Drive DQ low
     _us_delay(bus->timing->H);
-    gpio_set_direction(bus->gpio, GPIO_MODE_INPUT); // Release the bus
-    gpio_set_level(bus->gpio, 1);  // Reset the output level for the next output
+    gpio_set_direction(i->gpio, GPIO_MODE_INPUT); // Release the bus
+    gpio_set_level(i->gpio, 1);  // Reset the output level for the next output
     _us_delay(bus->timing->I);
 
 #ifdef PHY_DEBUG
     gpio_set_level(PHY_DEBUG_GPIO, 1);
 #endif
 
-    int level1 = gpio_get_level(bus->gpio);
+    int level1 = gpio_get_level(i->gpio);
 
 #ifdef PHY_DEBUG
     gpio_set_level(PHY_DEBUG_GPIO, 0);
@@ -120,7 +136,7 @@ static owb_status _reset(const OneWireBus * bus, bool * is_present)
     gpio_set_level(PHY_DEBUG_GPIO, 1);
 #endif
 
-    int level2 = gpio_get_level(bus->gpio);
+    int level2 = gpio_get_level(i->gpio);
 
 #ifdef PHY_DEBUG
     gpio_set_level(PHY_DEBUG_GPIO, 0);
@@ -145,14 +161,15 @@ static void _write_bit(const OneWireBus * bus, int bit)
 {
     int delay1 = bit ? bus->timing->A : bus->timing->C;
     int delay2 = bit ? bus->timing->B : bus->timing->D;
+    struct gpio_info *i = info_of_driver(bus->driver);
 
     portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
     taskENTER_CRITICAL(&timeCriticalMutex);
 
-    gpio_set_direction(bus->gpio, GPIO_MODE_OUTPUT);
-    gpio_set_level(bus->gpio, 0);  // Drive DQ low
+    gpio_set_direction(i->gpio, GPIO_MODE_OUTPUT);
+    gpio_set_level(i->gpio, 0);  // Drive DQ low
     _us_delay(delay1);
-    gpio_set_level(bus->gpio, 1);  // Release the bus
+    gpio_set_level(i->gpio, 1);  // Release the bus
     _us_delay(delay2);
 
     taskEXIT_CRITICAL(&timeCriticalMutex);
@@ -165,22 +182,23 @@ static void _write_bit(const OneWireBus * bus, int bit)
 static int _read_bit(const OneWireBus * bus)
 {
     int result = 0;
+    struct gpio_info *i = info_of_driver(bus->driver);
 
     portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
     taskENTER_CRITICAL(&timeCriticalMutex);
 
-    gpio_set_direction(bus->gpio, GPIO_MODE_OUTPUT);
-    gpio_set_level(bus->gpio, 0);  // Drive DQ low
+    gpio_set_direction(i->gpio, GPIO_MODE_OUTPUT);
+    gpio_set_level(i->gpio, 0);  // Drive DQ low
     _us_delay(bus->timing->A);
-    gpio_set_direction(bus->gpio, GPIO_MODE_INPUT); // Release the bus
-    gpio_set_level(bus->gpio, 1);  // Reset the output level for the next output
+    gpio_set_direction(i->gpio, GPIO_MODE_INPUT); // Release the bus
+    gpio_set_level(i->gpio, 1);  // Reset the output level for the next output
     _us_delay(bus->timing->E);
 
 #ifdef PHY_DEBUG
     gpio_set_level(PHY_DEBUG_GPIO, 1);
 #endif
 
-    int level = gpio_get_level(bus->gpio);
+    int level = gpio_get_level(i->gpio);
 
 #ifdef PHY_DEBUG
     gpio_set_level(PHY_DEBUG_GPIO, 0);
@@ -400,11 +418,14 @@ owb_status _init(OneWireBus * bus, int gpio)
 
     if (bus != NULL)
     {
-        bus->gpio = gpio;
+        struct gpio_info *i = info_of_driver(bus->driver);
+        printf("i 0x%p\n", i);
+        i->gpio = gpio;
+
         bus->timing = &_StandardTiming;
 
         // platform specific:
-        gpio_pad_select_gpio(bus->gpio);
+        gpio_pad_select_gpio(i->gpio);
 
 #ifdef PHY_DEBUG
         gpio_config_t io_conf;
@@ -427,9 +448,9 @@ owb_status _init(OneWireBus * bus, int gpio)
     return status;
 }
 
-static struct owb_driver gpio_driver =
+static const struct owb_driver gpio_function_table =
 {
-    .name = "owb_gpio",
+//    .name = "owb_gpio",
     .init = _init,
     .search = _search,
     .reset = _reset,
@@ -437,7 +458,15 @@ static struct owb_driver gpio_driver =
     .read_bytes = _read_block
 };
 
+static struct gpio_driver driver =
+{
+    .ftable = gpio_function_table,
+    .info = {0}
+};
+
 const struct owb_driver* owb_gpio_get_driver()
 {
-    return &gpio_driver;
+    printf("0x%p\n", driver.ftable);
+    driver.info.gpio = 1;
+    return driver.ftable;
 }
