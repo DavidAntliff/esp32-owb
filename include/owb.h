@@ -104,7 +104,9 @@ typedef enum
     OWB_STATUS_NOT_INITIALIZED,
     OWB_STATUS_PARAMETER_NULL,
     OWB_STATUS_DEVICE_NOT_RESPONDING,
-    OWB_STATUS_CRC_FAILED
+    OWB_STATUS_CRC_FAILED,
+    OWB_STATUS_TOO_MANY_BITS,
+    OWB_STATUS_HW_ERROR
 } owb_status;
 
 /** NOTE: Driver assumes that (*init) was called prior to any other methods */
@@ -258,6 +260,7 @@ owb_status owb_search_next(const OneWireBus * bus, OneWireBus_SearchState * stat
 char * owb_string_from_rom_code(OneWireBus_ROMCode rom_code, char * buffer, size_t len);
 
 #include "owb_gpio.h"
+#include "owb_rmt.h"
 
 #ifdef __cplusplus
 }
