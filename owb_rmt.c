@@ -381,7 +381,7 @@ static owb_status _init( owb_rmt_driver_info *info, uint8_t gpio_num,
             {
                 if (rmt_driver_install( rmt_rx.channel, 512, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED ) == ESP_OK)
                 {
-                    rmt_get_ringbuf_handle( info->rx_channel, &info->rb );
+                    rmt_get_ringbuf_handler( info->rx_channel, &info->rb );
 
                     status = OWB_STATUS_OK;
                 } else
