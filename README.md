@@ -2,7 +2,9 @@
 
 This is a ESP32-compatible C component for the Maxim Integrated "1-Wire" protocol.
 
-It is written and tested for the v2.0 of the [ESP-IDF](https://github.com/espressif/esp-idf) environment, using the xtensa-esp32-elf toolchain (gcc version 5.2.0).
+It is written and tested for version 3.0 of the [ESP-IDF](https://github.com/espressif/esp-idf) environment, using the xtensa-esp32-elf toolchain (gcc version 5.2.0, crosstool-ng-1.22.0-80-g6c4433a).
+
+Support for v2.1 is available on the [ESP-IDF_v2.1](https://github.com/DavidAntliff/esp32-owb/tree/ESP-IDF_v2.1) branch.
 
 ## Features
 
