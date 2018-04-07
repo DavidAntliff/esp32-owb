@@ -356,8 +356,9 @@ static owb_status _init(owb_rmt_driver_info *info, uint8_t gpio_num,
     owb_status status = OWB_STATUS_HW_ERROR;
 
     // Ensure the RMT peripheral is not already running
-    periph_module_disable(PERIPH_RMT_MODULE);
-    periph_module_enable(PERIPH_RMT_MODULE);
+    // Note: if using RMT elsewhere, don't call this here, call it at the start of your prgoram instead.
+    //periph_module_disable(PERIPH_RMT_MODULE);
+    //periph_module_enable(PERIPH_RMT_MODULE);
 
     info->bus.driver = &rmt_function_table;
     info->tx_channel = tx_channel;
