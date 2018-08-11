@@ -97,7 +97,7 @@ static owb_status _reset(const OneWireBus * bus, bool * is_present)
 {
     bool present = false;
     portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
-    taskENTER_CRITICAL(&timeCriticalMutex);
+    portENTER_CRITICAL(&timeCriticalMutex);
 
     owb_gpio_driver_info *i = info_from_bus(bus);
 
@@ -131,7 +131,7 @@ static owb_status _reset(const OneWireBus * bus, bool * is_present)
     gpio_set_level(PHY_DEBUG_GPIO, 0);
 #endif
 
-    taskEXIT_CRITICAL(&timeCriticalMutex);
+    portEXIT_CRITICAL(&timeCriticalMutex);
 
     present = (level1 == 0) && (level2 == 1);   // Sample for presence pulse from slave
     ESP_LOGD(TAG, "reset: level1 0x%x, level2 0x%x, present %d", level1, level2, present);
@@ -153,7 +153,7 @@ static void _write_bit(const OneWireBus * bus, int bit)
     owb_gpio_driver_info *i = info_from_bus(bus);
 
     portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
-    taskENTER_CRITICAL(&timeCriticalMutex);
+    portENTER_CRITICAL(&timeCriticalMutex);
 
     gpio_set_direction(i->gpio, GPIO_MODE_OUTPUT);
     gpio_set_level(i->gpio, 0);  // Drive DQ low
@@ -161,7 +161,7 @@ static void _write_bit(const OneWireBus * bus, int bit)
     gpio_set_level(i->gpio, 1);  // Release the bus
     _us_delay(delay2);
 
-    taskEXIT_CRITICAL(&timeCriticalMutex);
+    portEXIT_CRITICAL(&timeCriticalMutex);
 }
 
 /**
@@ -174,7 +174,7 @@ static int _read_bit(const OneWireBus * bus)
     owb_gpio_driver_info *i = info_from_bus(bus);
 
     portMUX_TYPE timeCriticalMutex = portMUX_INITIALIZER_UNLOCKED;
-    taskENTER_CRITICAL(&timeCriticalMutex);
+    portENTER_CRITICAL(&timeCriticalMutex);
 
     gpio_set_direction(i->gpio, GPIO_MODE_OUTPUT);
     gpio_set_level(i->gpio, 0);  // Drive DQ low
@@ -195,7 +195,7 @@ static int _read_bit(const OneWireBus * bus)
 
     _us_delay(bus->timing->F);   // Complete the timeslot and 10us recovery
 
-    taskEXIT_CRITICAL(&timeCriticalMutex);
+    portEXIT_CRITICAL(&timeCriticalMutex);
 
     result = level & 0x01;
 
