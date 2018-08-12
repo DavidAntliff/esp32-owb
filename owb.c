@@ -319,7 +319,7 @@ owb_status owb_read_rom(const OneWireBus * bus, OneWireBus_ROMCode *rom_code)
             {
                 status = OWB_STATUS_OK;
             }
-            char rom_code_s[17];
+            char rom_code_s[OWB_ROM_CODE_STRING_LENGTH];
             owb_string_from_rom_code(*rom_code, rom_code_s, sizeof(rom_code_s));
             ESP_LOGD(TAG, "rom_code %s", rom_code_s);
         }
@@ -338,35 +338,40 @@ owb_status owb_verify_rom(const OneWireBus * bus, OneWireBus_ROMCode rom_code, b
     owb_status status;
     bool result = false;
 
-    if(!bus || !is_present)
+    if (!bus || !is_present)
     {
         status = OWB_STATUS_PARAMETER_NULL;
-    } else if (!_is_init(bus))
+    }
+    else if (!_is_init(bus))
     {
         status = OWB_STATUS_NOT_INITIALIZED;
-    } else
+    }
+    else
     {
         OneWireBus_SearchState state = {
             .last_discrepancy = 64,
             .last_device_flag = false,
         };
 
-        bool is_found;
-        _search(bus, &state, &is_found);
-        if (is_found)
+        bool is_found = false;
+        while (!state.last_device_flag && !is_found)
         {
-            result = true;
-            for (int i = 0; i < sizeof(state.rom_code.bytes) && result; ++i)
+            _search(bus, &state, &is_found);
+            if (is_found)
             {
-                result = rom_code.bytes[i] == state.rom_code.bytes[i];
-                ESP_LOGD(TAG, "%02x %02x", rom_code.bytes[i], state.rom_code.bytes[i]);
+                result = true;
+                for (int i = 0; i < sizeof(state.rom_code.bytes) && result; ++i)
+                {
+                    result = rom_code.bytes[i] == state.rom_code.bytes[i];
+                    ESP_LOGD(TAG, "%02x %02x", rom_code.bytes[i], state.rom_code.bytes[i]);
+                }
+                is_found = result;
             }
-            ESP_LOGD(TAG, "rom code %sfound", result ? "" : "not ");
         }
 
-        status = OWB_STATUS_OK;
-
+        ESP_LOGD(TAG, "rom code %sfound", result ? "" : "not ");
         *is_present = result;
+        status = OWB_STATUS_OK;
     }
 
     return status;

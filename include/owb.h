@@ -52,6 +52,8 @@ extern "C" {
 #define OWB_ROM_SKIP          0xCC
 #define OWB_ROM_SEARCH_ALARM  0xEC
 
+#define OWB_ROM_CODE_STRING_LENGTH (17)  ///< Typical length of OneWire bus ROM ID as ASCII hex string, including null terminator
+
 struct owb_driver;
 
 /**
@@ -255,6 +257,7 @@ owb_status owb_search_next(const OneWireBus * bus, OneWireBus_SearchState * stat
  * @param[out] buffer The destination for the string representation. It will be null terminated.
  * @param[in] len The length of the buffer in bytes. 64-bit ROM codes require 16 characters
  *                to represent as a string, plus a null terminator, for 17 bytes.
+ *                See OWB_ROM_CODE_STRING_LENGTH.
  * @return pointer to the byte beyond the last byte written
  */
 char * owb_string_from_rom_code(OneWireBus_ROMCode rom_code, char * buffer, size_t len);
