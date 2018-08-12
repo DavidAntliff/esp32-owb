@@ -18,6 +18,13 @@ This library includes:
  * 1-Wire bus operations including multi-byte read and write operations.
  * CRC checks on ROM code.
 
+This component includes two methods of bus access - delay-driven GPIO and RMT-driven slots.
+The original implementation used CPU delays to construct the 1-Wire read/write timeslots
+however this proved to be too unreliable. A second method, using the ESP32's RMT peripheral,
+results in very accurate read/write timeslots and more reliable operation.
+
+Therefore I highly recommend that you use the RMT driver. The GPIO driver should be considered deprecated.
+
 ## Documentation
 
 Automatically generated API documentation (doxygen) is available [here](https://davidantliff.github.io/esp32-owb/index.html).
@@ -39,9 +46,9 @@ The code in this project is licensed under the MIT license - see LICENSE for det
 
 ## Acknowledgements
 
+Thank you to [Chris Morgan](https://github.com/chmorgan) for his contribution of adding RMT peripheral support for more reliable operation.
+
 Parts of this code are based on references provided to the public domain by Maxim Integrated.
 
 "1-Wire" is a registered trademark of Maxim Integrated.
-
-
 
