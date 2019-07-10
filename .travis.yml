@@ -29,9 +29,6 @@ script:
 
 # Deploy using Travis-CI/GitHub Pages integration support
 deploy:
-  # https://github.com/travis-ci/travis-ci/issues/9312#issuecomment-371590249
-  edge:
-    branch: v1.8.47
   provider: pages
   skip-cleanup: true
   local-dir: doc/html
