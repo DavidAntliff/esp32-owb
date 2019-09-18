@@ -1,0 +1,25 @@
+{
+  "name": "ESP32-OWB",
+  "keywords": "onewire, 1-wire, bus, sensor, temperature",
+  "description": "ESP32-compatible C component for the Maxim Integrated 1-Wire protocol.",
+  "repository":
+  {
+    "type": "git",
+    "url": "https://github.com/DavidAntliff/esp32-owb.git"
+  },
+  "authors":
+  [
+    {
+      "name": "David Antliff",
+      "url": "https://github.com/DavidAntliff",
+      "maintainer": true
+    },
+    {
+      "name": "Chris Morgan",
+      "url": "https://github.com/chmorgan"
+    }
+  ],
+  "version": "0.1",
+  "frameworks": "espidf",
+  "platforms": "espressif32"
+}
