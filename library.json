@@ -21,5 +21,10 @@
   ],
   "version": "0.1",
   "frameworks": "espidf",
-  "platforms": "espressif32"
+  "platforms": "espressif32",
+  "build": {
+    "flags": [
+        "-I include/"
+    ]
+  }
 }
