@@ -350,6 +350,38 @@ static struct owb_driver rmt_function_table =
     .read_bits = _read_bits
 };
 
+static void setup_pin(
+        gpio_num_t gpio_num,
+        rmt_channel_t tx_channel,
+        rmt_channel_t rx_channel
+) {
+    // Fix up GPIO config to Rx & Tx on the same pin with Open Drain & pull-up
+
+    // Select RMT TX as output
+    GPIO.func_out_sel_cfg[gpio_num].func_sel = 87 + tx_channel;
+
+    // Set open drain
+    GPIO.pin[gpio_num].pad_driver = 1;
+
+    // Enable pull up
+    gpio_pullup_en(gpio_num);
+
+    /* enable output
+     * gpio_output_enable() or gpio_set_direction() can't be used, since they change the signal routing as well
+     */
+    if (gpio_num < 32) {
+        GPIO.enable_w1ts = (0x1 << gpio_num);
+    } else {
+        GPIO.enable1_w1ts.data = (0x1 << (gpio_num - 32));
+    }
+
+    // Select RMT RX as input
+    GPIO.func_in_sel_cfg[83 + rx_channel].func_sel = gpio_num;
+
+    // enable input
+    PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[gpio_num]);
+}
+
 static owb_status _init(owb_rmt_driver_info *info, uint8_t gpio_num,
                         rmt_channel_t tx_channel, rmt_channel_t rx_channel)
 {
@@ -422,27 +454,7 @@ static owb_status _init(owb_rmt_driver_info *info, uint8_t gpio_num,
         ESP_LOGE(TAG, "failed to configure tx");
     }
 
-    // attach GPIO to previous pin
-    if (gpio_num < 32)
-    {
-        GPIO.enable_w1ts = (0x1 << gpio_num);
-    }
-    else
-    {
-        GPIO.enable1_w1ts.data = (0x1 << (gpio_num - 32));
-    }
-
-    // attach RMT channels to new gpio pin
-    // ATTENTION: set pin for rx first since gpio_output_disable() will
-    //            remove rmt output signal in matrix!
-    rmt_set_pin(info->rx_channel, RMT_MODE_RX, gpio_num);
-    rmt_set_pin(info->tx_channel, RMT_MODE_TX, gpio_num);
-
-    // force pin direction to input to enable path to RX channel
-    PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[gpio_num]);
-
-    // enable open drain
-    GPIO.pin[gpio_num].pad_driver = 1;
+    setup_pin(gpio_num, info->tx_channel, info->rx_channel);
 
     return status;
 }
