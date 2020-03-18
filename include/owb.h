@@ -211,6 +211,14 @@ owb_status owb_read_bytes(const OneWireBus * bus, uint8_t * buffer, unsigned int
 owb_status owb_write_bit(const OneWireBus * bus, const uint8_t bit);
 
 /**
+ * @brief Write a single byte to the 1-Wire bus.
+ * @param[in] bus Pointer to initialised bus instance.
+ * @param[in] byte Byte value to write to bus.
+ * @return status
+ */
+owb_status owb_write_byte(const OneWireBus * bus, uint8_t data);
+
+/**
  * @brief Write a number of bytes to the 1-Wire bus.
  * @param[in] bus Pointer to initialised bus instance.
  * @param[in] buffer Pointer to buffer to write data from.

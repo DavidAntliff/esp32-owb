@@ -102,7 +102,7 @@ static uint8_t _calc_crc_block(uint8_t crc, const uint8_t * buffer, size_t len)
     do
     {
         crc = _calc_crc(crc, *buffer++);
-        ESP_LOGD(TAG, "crc 0x%02x, len %d", (int)crc, (int)len);
+        ESP_LOGD(TAG, "buffer 0x%02x, crc 0x%02x, len %d", (uint8_t)*(buffer - 1), (int)crc, (int)len);
     }
     while (--len > 0);
     return crc;
@@ -416,27 +416,6 @@ owb_status owb_reset(const OneWireBus * bus, bool * a_device_present)
     return status;
 }
 
-owb_status owb_write_byte(const OneWireBus * bus, uint8_t data)
-{
-    owb_status status;
-
-    if (!bus)
-    {
-        status = OWB_STATUS_PARAMETER_NULL;
-    }
-    else if (!_is_init(bus))
-    {
-        status = OWB_STATUS_NOT_INITIALIZED;
-    }
-    else
-    {
-        bus->driver->write_bits(bus, data, 8);
-        status = OWB_STATUS_OK;
-    }
-
-    return status;
-}
-
 owb_status owb_read_bit(const OneWireBus * bus, uint8_t * out)
 {
     owb_status status;
@@ -452,13 +431,14 @@ owb_status owb_read_bit(const OneWireBus * bus, uint8_t * out)
     else
     {
         bus->driver->read_bits(bus, out, 1);
+        ESP_LOGD(TAG, "owb_read_bit: %02x", *out);
         status = OWB_STATUS_OK;
     }
 
     return status;
 }
 
-owb_status owb_read_byte(const OneWireBus * bus, uint8_t *out)
+owb_status owb_read_byte(const OneWireBus * bus, uint8_t * out)
 {
     owb_status status;
 
@@ -473,6 +453,7 @@ owb_status owb_read_byte(const OneWireBus * bus, uint8_t *out)
     else
     {
         bus->driver->read_bits(bus, out, 8);
+        ESP_LOGD(TAG, "owb_read_byte: %02x", *out);
         status = OWB_STATUS_OK;
     }
 
@@ -500,6 +481,9 @@ owb_status owb_read_bytes(const OneWireBus * bus, uint8_t * buffer, unsigned int
             buffer[i] = out;
         }
 
+        ESP_LOGD(TAG, "owb_read_bytes, len %d:", len);
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, buffer, len, ESP_LOG_DEBUG);
+
         status = OWB_STATUS_OK;
     }
 
@@ -520,7 +504,30 @@ owb_status owb_write_bit(const OneWireBus * bus, const uint8_t bit)
     }
     else
     {
+        ESP_LOGD(TAG, "owb_write_bit: %02x", bit);
         bus->driver->write_bits(bus, bit & 0x01, 1);
+        status = OWB_STATUS_OK;
+    }
+
+    return status;
+}
+
+owb_status owb_write_byte(const OneWireBus * bus, uint8_t data)
+{
+    owb_status status;
+
+    if (!bus)
+    {
+        status = OWB_STATUS_PARAMETER_NULL;
+    }
+    else if (!_is_init(bus))
+    {
+        status = OWB_STATUS_NOT_INITIALIZED;
+    }
+    else
+    {
+        ESP_LOGD(TAG, "owb_write_byte: %02x", data);
+        bus->driver->write_bits(bus, data, 8);
         status = OWB_STATUS_OK;
     }
 
@@ -541,6 +548,9 @@ owb_status owb_write_bytes(const OneWireBus * bus, const uint8_t * buffer, unsig
     }
     else
     {
+        ESP_LOGD(TAG, "owb_write_bytes, len %d:", len);
+        ESP_LOG_BUFFER_HEX_LEVEL(TAG, buffer, len, ESP_LOG_DEBUG);
+
         for (int i = 0; i < len; i++)
         {
             bus->driver->write_bits(bus, buffer[i], 8);
