@@ -367,25 +367,25 @@ owb_status owb_verify_rom(const OneWireBus * bus, OneWireBus_ROMCode rom_code, b
     else
     {
         OneWireBus_SearchState state = {
+            .rom_code = rom_code,
             .last_discrepancy = 64,
             .last_device_flag = false,
         };
 
         bool is_found = false;
-        while (!state.last_device_flag && !is_found)
+        _search(bus, &state, &is_found);
+        if (is_found)
         {
-            _search(bus, &state, &is_found);
-            if (is_found)
+            result = true;
+            for (int i = 0; i < sizeof(state.rom_code.bytes) && result; ++i)
             {
-                result = true;
-                for (int i = 0; i < sizeof(state.rom_code.bytes) && result; ++i)
-                {
-                    result = rom_code.bytes[i] == state.rom_code.bytes[i];
-                    ESP_LOGD(TAG, "%02x %02x", rom_code.bytes[i], state.rom_code.bytes[i]);
-                }
-                is_found = result;
+                result = rom_code.bytes[i] == state.rom_code.bytes[i];
+                ESP_LOGD(TAG, "%02x %02x", rom_code.bytes[i], state.rom_code.bytes[i]);
             }
+            is_found = result;
         }
+        ESP_LOGD(TAG, "state.last_discrepancy %d, state.last_device_flag %d, is_found %d",
+                 state.last_discrepancy, state.last_device_flag, is_found);
 
         ESP_LOGD(TAG, "rom code %sfound", result ? "" : "not ");
         *is_present = result;
