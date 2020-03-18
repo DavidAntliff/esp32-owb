@@ -167,7 +167,7 @@ owb_status owb_verify_rom(const OneWireBus * bus, OneWireBus_ROMCode rom_code, b
  * @param[out] is_present set to true if at least one device is present on the bus
  * @return status
  */
-owb_status owb_reset(const OneWireBus * bus, bool* a_device_present);
+owb_status owb_reset(const OneWireBus * bus, bool * a_device_present);
 
 /**
  * @brief Write a single byte to the 1-Wire bus.
@@ -178,12 +178,20 @@ owb_status owb_reset(const OneWireBus * bus, bool* a_device_present);
 owb_status owb_write_byte(const OneWireBus * bus, uint8_t data);
 
 /**
- * @brief Read a single byte from the 1-Wire bus.
+ * @brief Read a single bit from the 1-Wire bus.
  * @param[in] bus Pointer to initialised bus instance.
- * @param[out] out The byte value read from the bus.
+ * @param[out] out The bit value read from the bus.
  * @return status
  */
-owb_status owb_read_byte(const OneWireBus * bus, uint8_t *out);
+owb_status owb_read_bit(const OneWireBus * bus, uint8_t * out);
+
+/**
+ * @brief Read a single byte from the 1-Wire bus.
+ * @param[in] bus Pointer to initialised bus instance.
+ * @param[out] out The byte value read from the bus (lsb only).
+ * @return status
+ */
+owb_status owb_read_byte(const OneWireBus * bus, uint8_t * out);
 
 /**
  * @brief Read a number of bytes from the 1-Wire bus.
@@ -192,7 +200,15 @@ owb_status owb_read_byte(const OneWireBus * bus, uint8_t *out);
  * @param[in] len Number of bytes to read, must not exceed length of receive buffer.
  * @return status.
  */
-owb_status owb_read_bytes(const OneWireBus * bus, uint8_t * buffer, size_t len);
+owb_status owb_read_bytes(const OneWireBus * bus, uint8_t * buffer, unsigned int len);
+
+/**
+ * @brief Write a bit to the 1-Wire bus.
+ * @param[in] bus Pointer to initialised bus instance.
+ * @param[in] bit Value to write (lsb only).
+ * @return status
+ */
+owb_status owb_write_bit(const OneWireBus * bus, const uint8_t bit);
 
 /**
  * @brief Write a number of bytes to the 1-Wire bus.
