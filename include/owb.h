@@ -39,6 +39,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "driver/gpio.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,8 +64,10 @@ typedef struct
 {
     const struct _OneWireBus_Timing * timing;   ///< Pointer to timing information
     bool use_crc;                               ///< True if CRC checks are to be used when retrieving information from a device on the bus
+    bool use_parasitic_power;                   ///< True if parasitic-powered devices are expected on the bus.
+    gpio_num_t strong_pullup_gpio;              ///< Set if an external strong pull-up circuit is required.
 
-    const struct owb_driver *driver;
+    const struct owb_driver * driver;
 } OneWireBus;
 
 /**
@@ -102,7 +105,8 @@ typedef struct
 
 typedef enum
 {
-    OWB_STATUS_OK,
+    OWB_STATUS_NOT_SET = -1,
+    OWB_STATUS_OK = 0,
     OWB_STATUS_NOT_INITIALIZED,
     OWB_STATUS_PARAMETER_NULL,
     OWB_STATUS_DEVICE_NOT_RESPONDING,
@@ -133,6 +137,8 @@ struct owb_driver
 
 /**
  * @brief call to release resources after completing use of the OneWireBus
+ * @param[in] bus Pointer to initialised bus instance.
+ * @return status
  */
 owb_status owb_uninitialize(OneWireBus * bus);
 
@@ -143,6 +149,26 @@ owb_status owb_uninitialize(OneWireBus * bus);
  * @return status
  */
 owb_status owb_use_crc(OneWireBus * bus, bool use_crc);
+
+/**
+ * @brief Enable or disable use of parasitic power on the One Wire Bus.
+ *        This affects how devices signal on the bus, as devices cannot
+ *        signal by pulling the bus low when it is pulled high.
+ * @param[in] bus Pointer to initialised bus instance.
+ * @param[in] use_parasitic_power True to enable parasitic power, false to disable.
+ * @return status
+ */
+owb_status owb_use_parasitic_power(OneWireBus * bus, bool use_parasitic_power);
+
+/**
+ * @brief Enable or disable use of extra GPIO to activate strong pull-up circuit.
+ *        This only has effect if parasitic power mode is enabled.
+ *        signal by pulling the bus low when it is pulled high.
+ * @param[in] bus Pointer to initialised bus instance.
+ * @param[in] gpio Set to GPIO number to use, or GPIO_NUM_NC ti disable.
+ * @return status
+ */
+owb_status owb_use_strong_pullup_gpio(OneWireBus * bus, gpio_num_t gpio);
 
 /**
  * @brief Read ROM code from device - only works when there is a single device on the bus.
@@ -168,14 +194,6 @@ owb_status owb_verify_rom(const OneWireBus * bus, OneWireBus_ROMCode rom_code, b
  * @return status
  */
 owb_status owb_reset(const OneWireBus * bus, bool * a_device_present);
-
-/**
- * @brief Write a single byte to the 1-Wire bus.
- * @param[in] bus Pointer to initialised bus instance.
- * @param[in] data Byte value to write to bus.
- * @return status
- */
-owb_status owb_write_byte(const OneWireBus * bus, uint8_t data);
 
 /**
  * @brief Read a single bit from the 1-Wire bus.
@@ -208,7 +226,7 @@ owb_status owb_read_bytes(const OneWireBus * bus, uint8_t * buffer, unsigned int
  * @param[in] bit Value to write (lsb only).
  * @return status
  */
-owb_status owb_write_bit(const OneWireBus * bus, const uint8_t bit);
+owb_status owb_write_bit(const OneWireBus * bus, uint8_t bit);
 
 /**
  * @brief Write a single byte to the 1-Wire bus.
@@ -285,6 +303,16 @@ owb_status owb_search_next(const OneWireBus * bus, OneWireBus_SearchState * stat
  * @return pointer to the byte beyond the last byte written
  */
 char * owb_string_from_rom_code(OneWireBus_ROMCode rom_code, char * buffer, size_t len);
+
+/**
+ * @brief Enable or disable the strong-pullup GPIO, if configured.
+ * @param[in] bus Pointer to initialised bus instance.
+ * @param[in] enable If true, enable the external strong pull-up by setting the GPIO high.
+ *                   If false, disable the external strong pull-up by setting the GPIO low.
+ * @return status
+ */
+owb_status owb_set_strong_pullup(const OneWireBus * bus, bool enable);
+
 
 #include "owb_gpio.h"
 #include "owb_rmt.h"

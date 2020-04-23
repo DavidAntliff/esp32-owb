@@ -204,7 +204,7 @@ static rmt_item32_t _encode_write_slot(uint8_t val)
 static owb_status _write_bits(const OneWireBus * bus, uint8_t out, int number_of_bits_to_write)
 {
     rmt_item32_t tx_items[number_of_bits_to_write + 1];
-    owb_rmt_driver_info *info = info_of_driver(bus);
+    owb_rmt_driver_info * info = info_of_driver(bus);
 
     if (number_of_bits_to_write > 8)
     {
@@ -350,13 +350,13 @@ static struct owb_driver rmt_function_table =
     .read_bits = _read_bits
 };
 
-static owb_status _init(owb_rmt_driver_info *info, uint8_t gpio_num,
+static owb_status _init(owb_rmt_driver_info *info, gpio_num_t gpio_num,
                         rmt_channel_t tx_channel, rmt_channel_t rx_channel)
 {
     owb_status status = OWB_STATUS_HW_ERROR;
 
     // Ensure the RMT peripheral is not already running
-    // Note: if using RMT elsewhere, don't call this here, call it at the start of your prgoram instead.
+    // Note: if using RMT elsewhere, don't call this here, call it at the start of your program instead.
     //periph_module_disable(PERIPH_RMT_MODULE);
     //periph_module_enable(PERIPH_RMT_MODULE);
 
@@ -447,17 +447,19 @@ static owb_status _init(owb_rmt_driver_info *info, uint8_t gpio_num,
     return status;
 }
 
-OneWireBus * owb_rmt_initialize(owb_rmt_driver_info *info, uint8_t gpio_num,
+OneWireBus * owb_rmt_initialize(owb_rmt_driver_info * info, gpio_num_t gpio_num,
                                 rmt_channel_t tx_channel, rmt_channel_t rx_channel)
 {
     ESP_LOGD(TAG, "%s: gpio_num: %d, tx_channel: %d, rx_channel: %d",
              __func__, gpio_num, tx_channel, rx_channel);
 
     owb_status status = _init(info, gpio_num, tx_channel, rx_channel);
-    if(status != OWB_STATUS_OK)
+    if (status != OWB_STATUS_OK)
     {
         ESP_LOGE(TAG, "_init() failed with status %d", status);
     }
+
+    info->bus.strong_pullup_gpio = GPIO_NUM_NC;
 
     return &(info->bus);
 }
