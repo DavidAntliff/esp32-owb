@@ -55,6 +55,11 @@ extern "C" {
 
 #define OWB_ROM_CODE_STRING_LENGTH (17)  ///< Typical length of OneWire bus ROM ID as ASCII hex string, including null terminator
 
+// ESP-IDF v3.x doesn't define GPIO_NUM_NC
+#ifndef GPIO_NUM_NC
+#  define GPIO_NUM_NC (-1)
+#endif
+
 struct owb_driver;
 
 /**
@@ -165,7 +170,7 @@ owb_status owb_use_parasitic_power(OneWireBus * bus, bool use_parasitic_power);
  *        This only has effect if parasitic power mode is enabled.
  *        signal by pulling the bus low when it is pulled high.
  * @param[in] bus Pointer to initialised bus instance.
- * @param[in] gpio Set to GPIO number to use, or GPIO_NUM_NC ti disable.
+ * @param[in] gpio Set to GPIO number to use, or GPIO_NUM_NC to disable.
  * @return status
  */
 owb_status owb_use_strong_pullup_gpio(OneWireBus * bus, gpio_num_t gpio);
