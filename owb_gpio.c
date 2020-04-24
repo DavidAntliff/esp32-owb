@@ -63,7 +63,7 @@ struct _OneWireBus_Timing
 {
     uint32_t A, B, C, D, E, F, G, H, I, J;
 };
-//// @endcond
+/// @endcond
 
 // 1-Wire timing delays (standard) in microseconds.
 // Labels and values are from https://www.maximintegrated.com/en/app-notes/index.mvp/id/126
@@ -85,7 +85,9 @@ static void _us_delay(uint32_t time_us)
     ets_delay_us(time_us);
 }
 
+/// @cond ignore
 #define info_from_bus(owb) container_of(owb, owb_gpio_driver_info, bus)
+/// @endcond
 
 /**
  * @brief Generate a 1-Wire reset (initialization).

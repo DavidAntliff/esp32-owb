@@ -47,17 +47,16 @@ extern "C" {
 
 
 // ROM commands
-#define OWB_ROM_SEARCH        0xF0
-#define OWB_ROM_READ          0x33
-#define OWB_ROM_MATCH         0x55
-#define OWB_ROM_SKIP          0xCC
-#define OWB_ROM_SEARCH_ALARM  0xEC
+#define OWB_ROM_SEARCH        0xF0  ///< Perform Search ROM cycle to identify devices on the bus
+#define OWB_ROM_READ          0x33  ///< Read device ROM (single device on bus only)
+#define OWB_ROM_MATCH         0x55  ///< Address a specific device on the bus by ROM
+#define OWB_ROM_SKIP          0xCC  ///< Address all devices on the bus simultaneously
+#define OWB_ROM_SEARCH_ALARM  0xEC  ///< Address all devices on the bus with a set alarm flag
 
 #define OWB_ROM_CODE_STRING_LENGTH (17)  ///< Typical length of OneWire bus ROM ID as ASCII hex string, including null terminator
 
-// ESP-IDF v3.x doesn't define GPIO_NUM_NC
 #ifndef GPIO_NUM_NC
-#  define GPIO_NUM_NC (-1)
+#  define GPIO_NUM_NC (-1)  ///< ESP-IDF prior to v4.x does not define GPIO_NUM_NC
 #endif
 
 struct owb_driver;
@@ -69,10 +68,9 @@ typedef struct
 {
     const struct _OneWireBus_Timing * timing;   ///< Pointer to timing information
     bool use_crc;                               ///< True if CRC checks are to be used when retrieving information from a device on the bus
-    bool use_parasitic_power;                   ///< True if parasitic-powered devices are expected on the bus.
-    gpio_num_t strong_pullup_gpio;              ///< Set if an external strong pull-up circuit is required.
-
-    const struct owb_driver * driver;
+    bool use_parasitic_power;                   ///< True if parasitic-powered devices are expected on the bus
+    gpio_num_t strong_pullup_gpio;              ///< Set if an external strong pull-up circuit is required
+    const struct owb_driver * driver;           ///< Pointer to hardware driver instance
 } OneWireBus;
 
 /**
@@ -102,31 +100,37 @@ typedef union
  */
 typedef struct
 {
-    OneWireBus_ROMCode rom_code;
-    int last_discrepancy;
-    int last_family_discrepancy;
-    int last_device_flag;
+    OneWireBus_ROMCode rom_code;   ///< Device ROM code
+    int last_discrepancy;          ///< Bit index that identifies from which bit the next search discrepancy check should start
+    int last_family_discrepancy;   ///< Bit index that identifies the last discrepancy within the first 8-bit family code of the ROM code
+    int last_device_flag;          ///< Flag to indicate previous search was the last device detected
 } OneWireBus_SearchState;
 
+/**
+ * @brief Represents the result of OWB API functions.
+ */
 typedef enum
 {
-    OWB_STATUS_NOT_SET = -1,
-    OWB_STATUS_OK = 0,
-    OWB_STATUS_NOT_INITIALIZED,
-    OWB_STATUS_PARAMETER_NULL,
-    OWB_STATUS_DEVICE_NOT_RESPONDING,
-    OWB_STATUS_CRC_FAILED,
-    OWB_STATUS_TOO_MANY_BITS,
-    OWB_STATUS_HW_ERROR
+    OWB_STATUS_NOT_SET = -1,           ///< A status value has not been set
+    OWB_STATUS_OK = 0,                 ///< Operation succeeded
+    OWB_STATUS_NOT_INITIALIZED,        ///< Function was passed an uninitialised variable
+    OWB_STATUS_PARAMETER_NULL,         ///< Function was passed a null pointer
+    OWB_STATUS_DEVICE_NOT_RESPONDING,  ///< No response received from the addressed device or devices
+    OWB_STATUS_CRC_FAILED,             ///< CRC failed on data received from a device or devices
+    OWB_STATUS_TOO_MANY_BITS,          ///< Attempt to write an incorrect number of bits to the One Wire Bus
+    OWB_STATUS_HW_ERROR                ///< A hardware error occurred
 } owb_status;
 
 /** NOTE: Driver assumes that (*init) was called prior to any other methods */
 struct owb_driver
 {
+    /** Driver identification **/
     const char* name;
 
+    /** Pointer to driver uninitialization function **/
     owb_status (*uninitialize)(const OneWireBus * bus);
 
+    /** Pointer to driver reset functio **/
     owb_status (*reset)(const OneWireBus * bus, bool *is_present);
 
     /** NOTE: The data is shifted out of the low bits, eg. it is written in the order of lsb to msb */
@@ -136,9 +140,11 @@ struct owb_driver
     owb_status (*read_bits)(const OneWireBus *bus, uint8_t *in, int number_of_bits_to_read);
 };
 
+/// @cond ignore
 #define container_of(ptr, type, member) ({                      \
         const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
         (type *)( (char *)__mptr - offsetof(type,member) );})
+/// @endcond
 
 /**
  * @brief call to release resources after completing use of the OneWireBus
@@ -181,16 +187,16 @@ owb_status owb_use_strong_pullup_gpio(OneWireBus * bus, gpio_num_t gpio);
  * @param[out] rom_code the value read from the device's rom
  * @return status
  */
-owb_status owb_read_rom(const OneWireBus * bus, OneWireBus_ROMCode *rom_code);
+owb_status owb_read_rom(const OneWireBus * bus, OneWireBus_ROMCode * rom_code);
 
 /**
  * @brief Verify the device specified by ROM code is present.
  * @param[in] bus Pointer to initialised bus instance.
  * @param[in] rom_code ROM code to verify.
- * @param[out] is_present set to true if a device is present, false if not
+ * @param[out] is_present Set to true if a device is present, false if not
  * @return status
  */
-owb_status owb_verify_rom(const OneWireBus * bus, OneWireBus_ROMCode rom_code, bool* is_present);
+owb_status owb_verify_rom(const OneWireBus * bus, OneWireBus_ROMCode rom_code, bool * is_present);
 
 /**
  * @brief Reset the 1-Wire bus.
@@ -198,7 +204,7 @@ owb_status owb_verify_rom(const OneWireBus * bus, OneWireBus_ROMCode rom_code, b
  * @param[out] is_present set to true if at least one device is present on the bus
  * @return status
  */
-owb_status owb_reset(const OneWireBus * bus, bool * a_device_present);
+owb_status owb_reset(const OneWireBus * bus, bool * is_present);
 
 /**
  * @brief Read a single bit from the 1-Wire bus.
@@ -236,7 +242,7 @@ owb_status owb_write_bit(const OneWireBus * bus, uint8_t bit);
 /**
  * @brief Write a single byte to the 1-Wire bus.
  * @param[in] bus Pointer to initialised bus instance.
- * @param[in] byte Byte value to write to bus.
+ * @param[in] data Byte value to write to bus.
  * @return status
  */
 owb_status owb_write_byte(const OneWireBus * bus, uint8_t data);

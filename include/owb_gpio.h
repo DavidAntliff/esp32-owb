@@ -23,6 +23,16 @@
  * SOFTWARE.
  */
 
+/**
+ * @file
+ * @brief Interface definitions for the ESP32 GPIO driver used to communicate with devices
+ *        on the One Wire Bus.
+ *
+ * @deprecated
+ * This driver is deprecated and may be removed at some stage. It is not recommended for use
+ * due to issues with imprecise timing.
+ */
+
 #pragma once
 #ifndef OWB_GPIO_H
 #define OWB_GPIO_H
@@ -33,6 +43,9 @@
 extern "C" {
 #endif
 
+/**
+ * @brief GPIO driver information
+ */
 typedef struct
 {
     int gpio;         ///< Value of the GPIO connected to the 1-Wire bus

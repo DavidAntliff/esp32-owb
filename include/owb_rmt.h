@@ -23,6 +23,14 @@
  * SOFTWARE.
  */
 
+/**
+ * @file
+ * @brief Interface definitions for ESP32 RMT driver used to communicate with devices
+ *        on the One Wire Bus.
+ *
+ * This is the recommended driver.
+ */
+
 #pragma once
 #ifndef OWB_RMT_H
 #define OWB_RMT_H
@@ -36,6 +44,9 @@
 extern "C" {
 #endif
 
+/**
+ * @brief RMT driver information
+ */
 typedef struct
 {
   int tx_channel;     ///< RMT channel to use for TX

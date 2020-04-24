@@ -597,7 +597,7 @@ owb_status owb_write_byte(const OneWireBus * bus, uint8_t data)
     return status;
 }
 
-owb_status owb_write_bytes(const OneWireBus * bus, const uint8_t * buffer, unsigned int len)
+owb_status owb_write_bytes(const OneWireBus * bus, const uint8_t * buffer, size_t len)
 {
     owb_status status = OWB_STATUS_NOT_SET;
 
