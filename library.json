@@ -1,5 +1,5 @@
 {
-  "name": "ESP32-OWB",
+  "name": "esp32-owb",
   "keywords": "onewire, 1-wire, bus, sensor, temperature",
   "description": "ESP32-compatible C component for the Maxim Integrated 1-Wire protocol.",
   "repository":
