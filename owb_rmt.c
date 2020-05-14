@@ -370,7 +370,7 @@ static owb_status _init(owb_rmt_driver_info *info, gpio_num_t gpio_num,
     ESP_LOGI(TAG, "RMT RX channel: %d", info->rx_channel);
 #endif
 
-    rmt_config_t rmt_tx;
+    rmt_config_t rmt_tx = {0};
     rmt_tx.channel = info->tx_channel;
     rmt_tx.gpio_num = gpio_num;
     rmt_tx.mem_block_num = 1;
@@ -384,7 +384,7 @@ static owb_status _init(owb_rmt_driver_info *info, gpio_num_t gpio_num,
     {
         if (rmt_driver_install(rmt_tx.channel, 0, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK)
         {
-            rmt_config_t rmt_rx;
+            rmt_config_t rmt_rx = {0};
             rmt_rx.channel = info->rx_channel;
             rmt_rx.gpio_num = gpio_num;
             rmt_rx.clk_div = 80;
