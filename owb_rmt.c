@@ -81,6 +81,8 @@ sample code bearing this copyright.
 // needs to be larger than any duration occurring during write slots
 #define OW_DURATION_RX_IDLE (OW_DURATION_SLOT + 2)
 
+// maximum number of bits that can be read or written per slot
+#define MAX_BITS_PER_SLOT (8)
 
 static const char * TAG = "owb_rmt";
 
@@ -203,10 +205,10 @@ static rmt_item32_t _encode_write_slot(uint8_t val)
 /** NOTE: The data is shifted out of the low bits, eg. it is written in the order of lsb to msb */
 static owb_status _write_bits(const OneWireBus * bus, uint8_t out, int number_of_bits_to_write)
 {
-    rmt_item32_t tx_items[number_of_bits_to_write + 1] = {0};
+    rmt_item32_t tx_items[MAX_BITS_PER_SLOT + 1] = {0};
     owb_rmt_driver_info * info = info_of_driver(bus);
 
-    if (number_of_bits_to_write > 8)
+    if (number_of_bits_to_write > MAX_BITS_PER_SLOT)
     {
         return OWB_STATUS_TOO_MANY_BITS;
     }
@@ -252,13 +254,13 @@ static rmt_item32_t _encode_read_slot(void)
 /** NOTE: Data is read into the high bits, eg. each bit read is shifted down before the next bit is read */
 static owb_status _read_bits(const OneWireBus * bus, uint8_t *in, int number_of_bits_to_read)
 {
-    rmt_item32_t tx_items[number_of_bits_to_read + 1] = {0};
+    rmt_item32_t tx_items[MAX_BITS_PER_SLOT + 1] = {0};
     uint8_t read_data = 0;
     int res = OWB_STATUS_OK;
 
     owb_rmt_driver_info *info = info_of_driver(bus);
 
-    if (number_of_bits_to_read > 8)
+    if (number_of_bits_to_read > MAX_BITS_PER_SLOT)
     {
         ESP_LOGE(TAG, "_read_bits() OWB_STATUS_TOO_MANY_BITS");
         return OWB_STATUS_TOO_MANY_BITS;
