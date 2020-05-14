@@ -89,10 +89,10 @@ static const char * TAG = "owb_rmt";
 // flush any pending/spurious traces from the RX channel
 static void onewire_flush_rmt_rx_buf(const OneWireBus * bus)
 {
-    void *p;
-    size_t s;
+    void * p = NULL;
+    size_t s = 0;
 
-    owb_rmt_driver_info *i = info_of_driver(bus);
+    owb_rmt_driver_info * i = info_of_driver(bus);
 
     while ((p = xRingbufferReceive(i->rb, &s, 0)))
     {
@@ -101,29 +101,29 @@ static void onewire_flush_rmt_rx_buf(const OneWireBus * bus)
     }
 }
 
-static owb_status _reset(const OneWireBus *bus, bool *is_present)
+static owb_status _reset(const OneWireBus * bus, bool * is_present)
 {
-    rmt_item32_t tx_items[1];
+    rmt_item32_t tx_items[1] = {0};
     bool _is_present = false;
     int res = OWB_STATUS_OK;
 
-    owb_rmt_driver_info *i = info_of_driver(bus);
+    owb_rmt_driver_info * i = info_of_driver(bus);
 
     tx_items[0].duration0 = OW_DURATION_RESET;
     tx_items[0].level0 = 0;
     tx_items[0].duration1 = 0;
     tx_items[0].level1 = 1;
 
-    uint16_t old_rx_thresh;
+    uint16_t old_rx_thresh = 0;
     rmt_get_rx_idle_thresh(i->rx_channel, &old_rx_thresh);
-    rmt_set_rx_idle_thresh(i->rx_channel, OW_DURATION_RESET+60);
+    rmt_set_rx_idle_thresh(i->rx_channel, OW_DURATION_RESET + 60);
 
     onewire_flush_rmt_rx_buf(bus);
     rmt_rx_start(i->rx_channel, true);
     if (rmt_write_items(i->tx_channel, tx_items, 1, true) == ESP_OK)
     {
-        size_t rx_size;
-        rmt_item32_t* rx_items = (rmt_item32_t *)xRingbufferReceive(i->rb, &rx_size, 100 / portTICK_PERIOD_MS);
+        size_t rx_size = 0;
+        rmt_item32_t * rx_items = (rmt_item32_t *)xRingbufferReceive(i->rb, &rx_size, 100 / portTICK_PERIOD_MS);
 
         if (rx_items)
         {
@@ -180,7 +180,7 @@ static owb_status _reset(const OneWireBus *bus, bool *is_present)
 
 static rmt_item32_t _encode_write_slot(uint8_t val)
 {
-    rmt_item32_t item;
+    rmt_item32_t item = {0};
 
     item.level0 = 0;
     item.level1 = 1;
@@ -203,7 +203,7 @@ static rmt_item32_t _encode_write_slot(uint8_t val)
 /** NOTE: The data is shifted out of the low bits, eg. it is written in the order of lsb to msb */
 static owb_status _write_bits(const OneWireBus * bus, uint8_t out, int number_of_bits_to_write)
 {
-    rmt_item32_t tx_items[number_of_bits_to_write + 1];
+    rmt_item32_t tx_items[number_of_bits_to_write + 1] = {0};
     owb_rmt_driver_info * info = info_of_driver(bus);
 
     if (number_of_bits_to_write > 8)
@@ -222,7 +222,7 @@ static owb_status _write_bits(const OneWireBus * bus, uint8_t out, int number_of
     tx_items[number_of_bits_to_write].level0 = 1;
     tx_items[number_of_bits_to_write].duration0 = 0;
 
-    owb_status status;
+    owb_status status = OWB_STATUS_NOT_SET;
 
     if (rmt_write_items(info->tx_channel, tx_items, number_of_bits_to_write+1, true) == ESP_OK)
     {
@@ -239,7 +239,7 @@ static owb_status _write_bits(const OneWireBus * bus, uint8_t out, int number_of
 
 static rmt_item32_t _encode_read_slot(void)
 {
-    rmt_item32_t item;
+    rmt_item32_t item = {0};
 
     // construct pattern for a single read time slot
     item.level0    = 0;
@@ -252,7 +252,7 @@ static rmt_item32_t _encode_read_slot(void)
 /** NOTE: Data is read into the high bits, eg. each bit read is shifted down before the next bit is read */
 static owb_status _read_bits(const OneWireBus * bus, uint8_t *in, int number_of_bits_to_read)
 {
-    rmt_item32_t tx_items[number_of_bits_to_read + 1];
+    rmt_item32_t tx_items[number_of_bits_to_read + 1] = {0};
     uint8_t read_data = 0;
     int res = OWB_STATUS_OK;
 
@@ -278,7 +278,7 @@ static owb_status _read_bits(const OneWireBus * bus, uint8_t *in, int number_of_
     rmt_rx_start(info->rx_channel, true);
     if (rmt_write_items(info->tx_channel, tx_items, number_of_bits_to_read+1, true) == ESP_OK)
     {
-        size_t rx_size;
+        size_t rx_size = 0;
         rmt_item32_t* rx_items = (rmt_item32_t *)xRingbufferReceive(info->rb, &rx_size, portMAX_DELAY);
 
         if (rx_items)
