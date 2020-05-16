@@ -261,13 +261,14 @@ static const struct owb_driver gpio_function_table =
     .read_bits = _read_bits
 };
 
-OneWireBus* owb_gpio_initialize(owb_gpio_driver_info *driver_info, int gpio)
+OneWireBus* owb_gpio_initialize(owb_gpio_driver_info * driver_info, int gpio)
 {
-    ESP_LOGI(TAG, "%s(): gpio %d\n", __func__, gpio);
+    ESP_LOGD(TAG, "%s(): gpio %d\n", __func__, gpio);
 
     driver_info->gpio = gpio;
     driver_info->bus.driver = &gpio_function_table;
     driver_info->bus.timing = &_StandardTiming;
+    driver_info->bus.strong_pullup_gpio = GPIO_NUM_NC;
 
     // platform specific:
     gpio_pad_select_gpio(driver_info->gpio);
