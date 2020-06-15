@@ -30,7 +30,8 @@
  * This component provides structures and functions that are useful for communicating
  * with devices connected to a Maxim Integrated 1-Wire® bus via a single GPIO.
  *
- * Currently only externally powered devices are supported. Parasitic power is not supported.
+ * Externally powered and "parasite-powered" devices are supported.
+ * Please consult your device's datasheet for power requirements.
  */
 
 #ifndef ONE_WIRE_BUS_H
