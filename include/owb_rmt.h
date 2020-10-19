@@ -59,6 +59,7 @@ typedef struct
 /**
  * @brief Initialise the RMT driver.
  * @param[in] info Pointer to an uninitialized owb_rmt_driver_info structure.
+ *                 Note: the structure must remain in scope for the lifetime of this component.
  * @param[in] gpio_num The GPIO number to use as the One Wire bus data line.
  * @param[in] tx_channel The RMT channel to use for transmitting data to bus devices.
  * @param[in] rx_channel the RMT channel to use for receiving data from bus devices.
