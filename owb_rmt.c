@@ -281,7 +281,7 @@ static owb_status _read_bits(const OneWireBus * bus, uint8_t *in, int number_of_
     if (rmt_write_items(info->tx_channel, tx_items, number_of_bits_to_read+1, true) == ESP_OK)
     {
         size_t rx_size = 0;
-        rmt_item32_t* rx_items = (rmt_item32_t *)xRingbufferReceive(info->rb, &rx_size, portMAX_DELAY);
+        rmt_item32_t *rx_items = (rmt_item32_t *)xRingbufferReceive(info->rb, &rx_size, 100 / portTICK_PERIOD_MS);
 
         if (rx_items)
         {
