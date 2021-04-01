@@ -370,7 +370,7 @@ static owb_status _init(owb_rmt_driver_info *info, gpio_num_t gpio_num,
 #ifdef OW_DEBUG
     ESP_LOGI(TAG, "RMT TX channel: %d", info->tx_channel);
     ESP_LOGI(TAG, "RMT RX channel: %d", info->rx_channel);
-	ESP_LOGI(TAG, "RMT CLK_DIV: %d, BASECLK_SRC: %d", RMT_CLK_DIV, RMT_BASECLK_SRC);
+    ESP_LOGI(TAG, "RMT CLK_DIV: %d, BASECLK_SRC: %d", RMT_CLK_DIV, RMT_BASECLK_SRC);
 #endif
 
     rmt_config_t rmt_tx = {0};
