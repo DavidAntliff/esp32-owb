@@ -39,6 +39,22 @@
 #include "freertos/queue.h"
 #include "freertos/ringbuf.h"
 #include "driver/rmt.h"
+#include "soc/soc_caps.h"
+
+#ifdef SOC_RMT_SUPPORT_REF_TICK
+#define RMT_BASECLK_SRC RMT_BASECLK_REF
+#define RMT_CLK_DIV 1
+
+#elif SOC_RMT_SUPPORT_XTAL
+#define RMT_BASECLK_SRC RMT_BASECLK_XTAL
+#define RMT_CLK_DIV 40
+
+#else
+#define RMT_BASECLK_SRC RMT_BASECLK_APB
+#define RMT_CLK_DIV 80
+
+#endif
+
 
 #ifdef __cplusplus
 extern "C" {
