@@ -384,9 +384,9 @@ static owb_status _init(owb_rmt_driver_info *info, gpio_num_t gpio_num,
     rmt_tx.rmt_mode = RMT_MODE_TX;
     if (rmt_config(&rmt_tx) == ESP_OK)
     {
-        rmt_set_source_clk(info->tx_channel, RMT_BASECLK_APB);  // only APB is supported by IDF 4.2
         if (rmt_driver_install(rmt_tx.channel, 0, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK)
         {
+            rmt_set_source_clk(rmt_tx.channel, RMT_BASECLK_APB);  // only APB is supported by IDF 4.2
             rmt_config_t rmt_rx = {0};
             rmt_rx.channel = info->rx_channel;
             rmt_rx.gpio_num = gpio_num;
@@ -398,9 +398,9 @@ static owb_status _init(owb_rmt_driver_info *info, gpio_num_t gpio_num,
             rmt_rx.rx_config.idle_threshold = OW_DURATION_RX_IDLE;
             if (rmt_config(&rmt_rx) == ESP_OK)
             {
-                rmt_set_source_clk(info->rx_channel, RMT_BASECLK_APB);  // only APB is supported by IDF 4.2
                 if (rmt_driver_install(rmt_rx.channel, 512, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK)
                 {
+                    rmt_set_source_clk(rmt_rx.channel, RMT_BASECLK_APB);  // only APB is supported by IDF 4.2
                     rmt_get_ringbuf_handle(info->rx_channel, &info->rb);
                     status = OWB_STATUS_OK;
                 }
