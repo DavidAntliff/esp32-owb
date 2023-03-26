@@ -68,16 +68,21 @@ sample code bearing this copyright.
 
 // bus reset: duration of low phase [us]
 #define OW_DURATION_RESET 480
+
 // overall slot duration
 #define OW_DURATION_SLOT 75
+
 // write 1 slot and read slot durations [us]
-#define OW_DURATION_1_LOW    2
+#define OW_DURATION_1_LOW    6
 #define OW_DURATION_1_HIGH (OW_DURATION_SLOT - OW_DURATION_1_LOW)
+
 // write 0 slot durations [us]
 #define OW_DURATION_0_LOW   65
 #define OW_DURATION_0_HIGH (OW_DURATION_SLOT - OW_DURATION_0_LOW)
+
 // sample time for read slot
 #define OW_DURATION_SAMPLE  (15-2)
+
 // RX idle threshold
 // needs to be larger than any duration occurring during write slots
 #define OW_DURATION_RX_IDLE (OW_DURATION_SLOT + 2)
