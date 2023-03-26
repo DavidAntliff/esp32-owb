@@ -2,10 +2,13 @@
 
 This is a ESP32-compatible C component for the Maxim Integrated "1-Wire" protocol.
 
-It is written and tested for version 3.0-3.3 and 4.1-beta1 of the [ESP-IDF](https://github.com/espressif/esp-idf) 
-environment, using the xtensa-esp32-elf toolchain (gcc version 5.2.0, crosstool-ng-1.22.0-80-g6c4433a).
+It is written for the `idf.py` target `esp32`, although it may work on other ESP-32 devices with minor modifications.
 
-Support for v2.1 is available on the [ESP-IDF_v2.1](https://github.com/DavidAntliff/esp32-owb/tree/ESP-IDF_v2.1) branch.
+It is tested for version 4.4.4 and 5.0.1 of the [ESP-IDF](https://github.com/espressif/esp-idf) environment.
+
+Legacy support for v2.1 is available on the [ESP-IDF_v2.1](https://github.com/DavidAntliff/esp32-owb/tree/ESP-IDF_v2.1) branch. This is no longer maintained.
+
+Legacy support for v3.0-v3.3 and v4.1-beta1 is available on the [ESP-IDF_v3.0-3.3_4.1-beta1](https://github.com/DavidAntliff/esp32-owb/tree/ESP-IDF_v3.0-3.3_4.1-beta1) branch. This is no longer maintained.
 
 ## Features
 
@@ -27,7 +30,7 @@ results in very accurate read/write timeslots and more reliable operation.
 
 Therefore I highly recommend that you use the RMT driver. *The GPIO driver is deprecated and will be removed.*
 
-See documentation for [esp32-ds18b20](https://www.github.com/DavidAntliff/esp32-ds18b20-example#parasitic-power-mode) 
+See documentation for [esp32-ds18b20](https://www.github.com/DavidAntliff/esp32-ds18b20#parasitic-power-mode) 
 for further information about parasitic power mode, including strong pull-up configuration.
 
 ## Documentation
