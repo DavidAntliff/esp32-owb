@@ -105,6 +105,8 @@ static owb_status _reset(const OneWireBus * bus, bool * is_present)
 
     owb_gpio_driver_info *i = info_from_bus(bus);
 
+    gpio_set_level(i->gpio, 1);  // Reset DQ
+    _us_delay(bus->timing->A);
     gpio_set_direction(i->gpio, GPIO_MODE_OUTPUT);
     _us_delay(bus->timing->G);
     gpio_set_level(i->gpio, 0);  // Drive DQ low
