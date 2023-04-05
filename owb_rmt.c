@@ -1,475 +1,665 @@
-/*
-Created by Chris Morgan based on the nodemcu project driver.
-Copyright 2017 Chris Morgan <chmorgan@gmail.com>
+/**
+ * Copyright (c) 2023 mjcross
+ *
+ * SPDX-License-Identifier: MIT
+**/
 
-Ported to ESP32 RMT peripheral for low-level signal generation by Arnim Laeuger.
-
-Permission is hereby granted, free of charge, to any person obtaining
-a copy of this software and associated documentation files (the
-"Software"), to deal in the Software without restriction, including
-without limitation the rights to use, copy, modify, merge, publish,
-distribute, sublicense, and/or sell copies of the Software, and to
-permit persons to whom the Software is furnished to do so, subject to
-the following conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
-WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-Much of the code was inspired by Derek Yerger's code, though I don't
-think much of that remains.  In any event that was..
-    (copyleft) 2006 by Derek Yerger - Free to distribute freely.
-
-The CRC code was excerpted and inspired by the Dallas Semiconductor
-sample code bearing this copyright.
-//---------------------------------------------------------------------------
-// Copyright (C) 2000 Dallas Semiconductor Corporation, All Rights Reserved.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the "Software"),
-// to deal in the Software without restriction, including without limitation
-// the rights to use, copy, modify, merge, publish, distribute, sublicense,
-// and/or sell copies of the Software, and to permit persons to whom the
-// Software is furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY,  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-// IN NO EVENT SHALL DALLAS SEMICONDUCTOR BE LIABLE FOR ANY CLAIM, DAMAGES
-// OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-// ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-// OTHER DEALINGS IN THE SOFTWARE.
-//
-// Except as contained in this notice, the name of Dallas Semiconductor
-// shall not be used except as stated in the Dallas Semiconductor
-// Branding Policy.
-//--------------------------------------------------------------------------
-*/
+#include "esp_log.h"
+#include "driver/rmt_tx.h"
+#include "driver/rmt_rx.h"
 
 #include "owb.h"
+#include "owb_rmt_bus_timings.h"
+#include "owb_rmt_bus_symbols.h"
 
-#include "driver/rmt.h"
-#include "driver/gpio.h"
-#include "esp_log.h"
-#include "soc/gpio_periph.h"    // for GPIO_PIN_MUX_REG
+#define OWB_RMT_CLK_HZ 1000000              // run the RMT at 1MHz to get 1us ticks
+#define OWB_RMT_TX_MEM_BLOCK_SYMBOLS 64     // size of TX memory block in units of rmt_symbol_word_t (must be even)
+#define OWB_RMT_TX_QUEUE_DEPTH 4            // max pending TX transfers
+#define OWB_RMT_MAX_READ_BITS 64            // maximum number of bits that will be read at once (used to calculate buffer size)
+#define OWB_RMT_RX_MEM_BLOCK_SYMBOLS (OWB_RMT_MAX_READ_BITS + 2)     // size of RX memory block in units of rmt_symbol_word_t (must be even)
+#define OWB_RMT_RX_MIN_NS 1000              // RMT receive channel glitch rejection threshold (ns)
+#define OWB_RMT_TIMEOUT_MS 1000             // timeout threshold for an RMT task (ms)
+#define OWB_TIMING_MARGIN 3                 // timing variation permitted by our event parsing functions (in microsec)
 
-#undef OW_DEBUG
+// debug parsing of RMT raw symbols
+//#define OWB_RMT_DEBUG
 
-
-// bus reset: duration of low phase [us]
-#define OW_DURATION_RESET 480
-
-// overall slot duration
-#define OW_DURATION_SLOT 75
-
-// write 1 slot and read slot durations [us]
-#define OW_DURATION_1_LOW    6
-#define OW_DURATION_1_HIGH (OW_DURATION_SLOT - OW_DURATION_1_LOW)
-
-// write 0 slot durations [us]
-#define OW_DURATION_0_LOW   65
-#define OW_DURATION_0_HIGH (OW_DURATION_SLOT - OW_DURATION_0_LOW)
-
-// sample time for read slot
-#define OW_DURATION_SAMPLE  (15-2)
-
-// RX idle threshold
-// needs to be larger than any duration occurring during write slots
-#define OW_DURATION_RX_IDLE (OW_DURATION_SLOT + 2)
-
-// maximum number of bits that can be read or written per slot
-#define MAX_BITS_PER_SLOT (8)
-
+// tag for log messages
 static const char * TAG = "owb_rmt";
 
-#define info_of_driver(owb) container_of(owb, owb_rmt_driver_info, bus)
 
-// flush any pending/spurious traces from the RX channel
-static void onewire_flush_rmt_rx_buf(const OneWireBus * bus)
-{
-    void * p = NULL;
-    size_t s = 0;
+//------
+// private API functions and constants
+//------
 
-    owb_rmt_driver_info * i = info_of_driver(bus);
+// onewire bus symbols as rmt_symbol_word_t
+static const rmt_symbol_word_t owb_rmt_symbol_0bit = OWB_RMT_SYMBOL_0BIT;
+static const rmt_symbol_word_t owb_rmt_symbol_1bit = OWB_RMT_SYMBOL_1BIT;
+static const rmt_symbol_word_t owb_rmt_symbol_reset = OWB_RMT_SYMBOL_RESET;
 
-    while ((p = xRingbufferReceive(i->rb, &s, 0)))
-    {
-        ESP_LOGD(TAG, "flushing entry");
-        vRingbufferReturnItem(i->rb, p);
+// RMT transmit configuration for the OWB: transmit symbols once then release the bus
+static const rmt_transmit_config_t owb_rmt_transmit_config = {
+    .loop_count = 0,                        // don't send any repeats
+    .flags = {
+        .eot_level = OWB_RMT_BUS_RELEASED   // release the bus after the transmission
     }
-}
+};
 
-static owb_status _reset(const OneWireBus * bus, bool * is_present)
-{
-    rmt_item32_t tx_items[1] = {0};
-    bool _is_present = false;
-    int res = OWB_STATUS_OK;
+// RMT receiver configuration for a onewire reset pulse
+static const rmt_receive_config_t rx_config_owb_reset = {
+    .signal_range_min_ns = OWB_RMT_RX_MIN_NS,                                   // glitch rejection threshold (ns)
+    .signal_range_max_ns = (OWB_TIMING_PARAM_H + OWB_TIMING_PARAM_I) * 1000     // stop condition (ns)
+};
 
-    owb_rmt_driver_info * i = info_of_driver(bus);
+// RMT receiver configuration for a sequence of onewire data bits
+static const rmt_receive_config_t rx_config_owb_bits = {
+    .signal_range_min_ns = OWB_RMT_RX_MIN_NS,                                   // glitch rejection threshold (ns)
+    .signal_range_max_ns = (OWB_TIMING_PARAM_A + OWB_TIMING_PARAM_B) * 1000     // stop condition (ns)
+};
 
-    tx_items[0].duration0 = OW_DURATION_RESET;
-    tx_items[0].level0 = 0;
-    tx_items[0].duration1 = 0;
-    tx_items[0].level1 = 1;
 
-    uint16_t old_rx_thresh = 0;
-    rmt_get_rx_idle_thresh(i->rx_channel, &old_rx_thresh);
-    rmt_set_rx_idle_thresh(i->rx_channel, OW_DURATION_RESET + 60);
+/**
+ * @brief Uninstalls a onewire bus driver and releases the associated resources.
+ * @param bus A previously-initialised OneWireBus.
+ * @return owb_status OWB_STATUS_OK on success, otherwise an error code (see owb.h)
+ */
+static owb_status _uninitialize(const OneWireBus *bus) {
 
-    onewire_flush_rmt_rx_buf(bus);
-    rmt_rx_start(i->rx_channel, true);
-    if (rmt_write_items(i->tx_channel, tx_items, 1, true) == ESP_OK)
-    {
-        size_t rx_size = 0;
-        rmt_item32_t * rx_items = (rmt_item32_t *)xRingbufferReceive(i->rb, &rx_size, 100 / portTICK_PERIOD_MS);
+    // fetch the parent `owb_rmt_driver_info` structure for `bus`
+    owb_rmt_driver_info *info = __containerof(bus, owb_rmt_driver_info, bus);    // (pointer, type, member)
+    if (info == NULL) {
+        ESP_LOGE(TAG, "err uninitialize: no bus container");
+        return OWB_STATUS_PARAMETER_NULL;
+    }
 
-        if (rx_items)
-        {
-            if (rx_size >= (1 * sizeof(rmt_item32_t)))
-            {
-#ifdef OW_DEBUG
-                ESP_LOGI(TAG, "rx_size: %d", rx_size);
+    // release RMT device symbol buffer and queue
+    free (info->rx_buffer);
+    vQueueDelete (info->rx_queue);
 
-                for (int i = 0; i < (rx_size / sizeof(rmt_item32_t)); i++)
-                {
-                    ESP_LOGI(TAG, "i: %d, level0: %d, duration %d", i, rx_items[i].level0, rx_items[i].duration0);
-                    ESP_LOGI(TAG, "i: %d, level1: %d, duration %d", i, rx_items[i].level1, rx_items[i].duration1);
-                }
-#endif
-
-                // parse signal and search for presence pulse
-                if ((rx_items[0].level0 == 0) && (rx_items[0].duration0 >= OW_DURATION_RESET - 2))
-                {
-                    if ((rx_items[0].level1 == 1) && (rx_items[0].duration1 > 0))
-                    {
-                        if (rx_items[1].level0 == 0)
-                        {
-                            _is_present = true;
-                        }
-                    }
-                }
-            }
-
-            vRingbufferReturnItem(i->rb, (void *)rx_items);
+    // disable and release RMT resources
+    if (rmt_disable (info->rx_channel_handle) == ESP_OK &&
+        rmt_del_channel (info->rx_channel_handle) == ESP_OK &&
+        rmt_disable (info->tx_channel_handle) == ESP_OK &&
+        rmt_del_channel (info->tx_channel_handle) == ESP_OK &&
+        rmt_del_encoder (info->copy_encoder_handle) == ESP_OK &&
+        rmt_del_encoder (info->bytes_encoder_handle) == ESP_OK ) {
+            // all resources successfully released
+            return OWB_STATUS_OK;
         }
-        else
-        {
-            // time out occurred, this indicates an unconnected / misconfigured bus
-            ESP_LOGE(TAG, "rx_items == 0");
-            res = OWB_STATUS_HW_ERROR;
+
+    // an error occurred
+    ESP_LOGE(TAG, "err uninitializing");
+    return OWB_STATUS_HW_ERROR;
+}
+
+
+/**
+ * @brief Parses the RMT symbols received during a onewire bus reset.
+ * @param[in] num_symbols The number of symbols passed.
+ * @param[in] symbols An array of RMT symbols.
+ * @param[out] slave_is_present Whether a slave presence signal was detected.
+ * @return OWB_STATUS_OK if the symbols pass basic valdation; otherwise an error code (see owb.h).
+ */
+static owb_status _parse_reset_symbols (size_t num_symbols, rmt_symbol_word_t *symbols, bool *slave_is_present) {
+    *slave_is_present = false;
+
+    if (num_symbols == 0 || symbols == NULL) {
+        return OWB_STATUS_PARAMETER_NULL;
+    }
+
+    #ifdef OWB_RMT_DEBUG
+    // display raw RMT symbols
+    ESP_LOGI(TAG, "parse reset: %d symbols", (int)num_symbols);
+    for (int i = 0; i < num_symbols; i += 1) {
+        ESP_LOGI (TAG, "\t%u (%uus), %u (%uus)", symbols->level0, symbols->duration0, 
+        symbols->level1, symbols->duration1);
+    }
+    #endif
+
+    // check the duration of the reset pulse
+    if (abs (symbols[0].duration0 - OWB_TIMING_PARAM_H) > OWB_TIMING_MARGIN) {
+        return OWB_STATUS_HW_ERROR;
+    }
+
+    // check for a valid 'no slave' event
+    if (num_symbols == 1 && symbols[0].duration1 == 0) {
+            *slave_is_present = false;
+            return OWB_STATUS_OK;
+    }
+
+    // check for a valid 'slave present' event
+    if (num_symbols == 2 &&                                                     // no 'extra' symbols after the presence pulse
+        symbols[0].duration1 < OWB_TIMING_PARAM_I &&                            // presence pulse must arrive before the sample point
+        (symbols[1].duration0 + symbols[0].duration1) >= OWB_TIMING_PARAM_I     // presence pulse must not finish before the sample point
+        ) {
+            *slave_is_present = true;
+            return OWB_STATUS_OK;
+    }
+
+    // anything else is invalid
+    return OWB_STATUS_HW_ERROR;
+}
+
+
+/**
+ * @brief Parses the RMT symbols received during the transmission of up to 64 onewire bits.
+ * @param[in] num_symbols The number of symbols passed. 
+ * @param[in] symbols An array of RMT symbols.
+ * @param[out] result The decoded bits (max 64, lsb first)
+ * @return int The number of bits decoded
+ */
+static int _parse_bit_symbols (size_t num_symbols, rmt_symbol_word_t *p_symbol, uint64_t *result) {
+    *result = 0;
+    int bit_count = 0;
+    rmt_symbol_word_t *p_last_symbol = p_symbol + num_symbols;
+
+    #ifdef OWB_RMT_DEBUG
+    // display raw RMT symbols
+    ESP_LOGI(TAG, "parse bits: %d symbols", (int)num_symbols);
+    #endif
+
+    while (p_symbol < p_last_symbol && bit_count < 64) {
+        #ifdef OWB_RMT_DEBUG
+        ESP_LOGI (TAG, "\t%u (%uus), %u (%uus)", p_symbol->level0, p_symbol->duration0, 
+                    p_symbol->level1, p_symbol->duration1);
+        #endif
+        if (abs (p_symbol->duration0 - OWB_TIMING_PARAM_A) <= OWB_TIMING_MARGIN &&
+            (p_symbol->duration1 == 0 || p_symbol->duration1 >= OWB_TIMING_PARAM_E)) {
+                // bus was released at the sample point: detect a '1'   
+                *result |= (1ull << bit_count);
+                bit_count += 1;
+
+                #ifdef OWB_RMT_DEBUG
+                ESP_LOGI (TAG, "\t\tdetect '1' -> 0x%llx", *result);
+                #endif
+
+        } else if (p_symbol->duration0 >= (OWB_TIMING_PARAM_A + OWB_TIMING_PARAM_E)) {
+            // bus was asserted at the sample point: detect a '0'
+            bit_count += 1;
+
+            #ifdef OWB_RMT_DEBUG
+            ESP_LOGI (TAG, "\t\tdetect '0' -> 0x%llx", *result);
+            #endif            
         }
-    }
-    else
-    {
-        // error in tx channel
-        ESP_LOGE(TAG, "Error tx");
-        res = OWB_STATUS_HW_ERROR;
+        p_symbol += 1;        // next symbol
     }
 
-    rmt_rx_stop(i->rx_channel);
-    rmt_set_rx_idle_thresh(i->rx_channel, old_rx_thresh);
-
-    *is_present = _is_present;
-
-    ESP_LOGD(TAG, "_is_present %d", _is_present);
-
-    return res;
+    return bit_count;
 }
 
-static rmt_item32_t _encode_write_slot(uint8_t val)
-{
-    rmt_item32_t item = {0};
 
-    item.level0 = 0;
-    item.level1 = 1;
-    if (val)
-    {
-        // write "1" slot
-        item.duration0 = OW_DURATION_1_LOW;
-        item.duration1 = OW_DURATION_1_HIGH;
-    }
-    else
-    {
-        // write "0" slot
-        item.duration0 = OW_DURATION_0_LOW;
-        item.duration1 = OW_DURATION_0_HIGH;
+/**
+ * @brief Sends a onewire bus reset pulse and listens for slave presence responses.
+ * @param[in] bus Points to the OneWireBus structure (see owb.h).
+ * @param[out] is_present Points to a bool that will receive the detection result.
+ * @return OWB_STATUS_OK if the call succeeded; otherwise an owb_status error code (see owb.h).
+ */
+static owb_status _reset (const OneWireBus *bus, bool *is_present) {
+
+    esp_err_t esp_status;
+
+    // identify the rmt_driver_info structure that contains `bus`
+    owb_rmt_driver_info *info = __containerof(bus, owb_rmt_driver_info, bus);
+
+    // start the receiver before the transmitter so that it sees the leading edge of the pulse
+    esp_status = rmt_receive (
+        info->rx_channel_handle, 
+        info->rx_buffer,
+        info->rx_buffer_size_in_bytes, 
+        &rx_config_owb_reset);
+    if (esp_status != ESP_OK) {
+        ESP_LOGE(TAG, "owb_reset: rx err");
+        return OWB_STATUS_HW_ERROR;
     }
 
-    return item;
+    // encode and transmit the reset pulse using the RMT 'copy' encoder
+    esp_status = rmt_transmit (
+        info->tx_channel_handle, 
+        info->copy_encoder_handle, 
+        &owb_rmt_symbol_reset, 
+        sizeof (owb_rmt_symbol_reset),
+        &owb_rmt_transmit_config);    
+    if (esp_status != ESP_OK) {
+        ESP_LOGE(TAG, "owb_reset: tx err");
+        return OWB_STATUS_HW_ERROR;
+    }
+
+    // wait for the transmission to finish (or timeout with an error)
+    if (rmt_tx_wait_all_done (info->tx_channel_handle, OWB_RMT_TIMEOUT_MS) != ESP_OK) {
+        ESP_LOGE(TAG, "owb_reset: tx timeout");
+        return OWB_STATUS_DEVICE_NOT_RESPONDING;        // tx timeout
+    }
+
+    // wait for the recv_done event data from our callback
+    rmt_rx_done_event_data_t rx_done_event_data;
+    if (xQueueReceive (info->rx_queue, &rx_done_event_data, pdMS_TO_TICKS(OWB_RMT_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "owb_reset: no rx symbol");       // rx timeout
+        return OWB_STATUS_DEVICE_NOT_RESPONDING;
+    }
+    
+    // parse the event data and return the result
+    return _parse_reset_symbols (rx_done_event_data.num_symbols, rx_done_event_data.received_symbols, is_present);
 }
 
-/** NOTE: The data is shifted out of the low bits, eg. it is written in the order of lsb to msb */
-static owb_status _write_bits(const OneWireBus * bus, uint8_t out, int number_of_bits_to_write)
-{
-    rmt_item32_t tx_items[MAX_BITS_PER_SLOT + 1] = {0};
-    owb_rmt_driver_info * info = info_of_driver(bus);
+/**
+ * @brief Writes a number of bytes to the onewire bus (slightly more efficient than sending them individually).
+ * @param bus A previously-initialised OneWireBus.
+ * @param bytes The bytes to be sent.
+ * @param number_of_bytes_to_write How many bytes to send.
+ * @return owb_status OWB_STATUS_OK on success, otherwise an error code (see owb.h).
+ */
+static owb_status _write_bytes(const OneWireBus *bus, uint8_t *bytes, int number_of_bytes_to_write) {
+    esp_err_t esp_status;
 
-    if (number_of_bits_to_write > MAX_BITS_PER_SLOT)
-    {
+    // identify the rmt_driver_info structure that contains `bus`
+    owb_rmt_driver_info *info = __containerof(bus, owb_rmt_driver_info, bus);
+
+    // encode and transmit the bits using the RMT 'bytes' encoder
+    esp_status = rmt_transmit (
+        info->tx_channel_handle,
+        info->bytes_encoder_handle,
+        bytes,
+        (size_t)number_of_bytes_to_write,
+        &owb_rmt_transmit_config);
+    if (esp_status != ESP_OK) {
+        ESP_LOGE(TAG, "owb_write: tx err");
+        return OWB_STATUS_HW_ERROR;
+    }
+
+    // wait for the transmission to finish (or timeout with an error)
+    if (rmt_tx_wait_all_done (info->tx_channel_handle, OWB_RMT_TIMEOUT_MS) != ESP_OK) {
+        return OWB_STATUS_DEVICE_NOT_RESPONDING;    // tx timeout
+    }
+    return OWB_STATUS_OK;    
+}
+
+
+/**
+ * @brief Writes 1-8 bits to the onewire bus.
+ * @param bus A previously-initialised OneWireBus.
+ * @param bytes A byte with the bits to be sent (lsb first).
+ * @param number_of_bits_to_write How many bits to send (maximum 8).
+ * @return owb_status OWB_STATUS_OK on success, otherwise an error code (see owb.h).
+ */
+static owb_status _write_bits(const OneWireBus *bus, uint8_t out, int number_of_bits_to_write) {
+
+    // send 8 bits as a byte instead
+    if (number_of_bits_to_write == 8) {
+        return _write_bytes (bus, &out, 1);
+    }
+
+    if (number_of_bits_to_write < 1 || number_of_bits_to_write > 8) {
+        ESP_LOGE(TAG, "owb_write_bits: bad num of bits (%d)", number_of_bits_to_write);
         return OWB_STATUS_TOO_MANY_BITS;
     }
 
-    // write requested bits as pattern to TX buffer
-    for (int i = 0; i < number_of_bits_to_write; i++)
-    {
-        tx_items[i] = _encode_write_slot(out & 0x01);
-        out >>= 1;
-    }
+    // identify the rmt_driver_info structure that contains `bus`
+    owb_rmt_driver_info *info = __containerof(bus, owb_rmt_driver_info, bus);
 
-    // end marker
-    tx_items[number_of_bits_to_write].level0 = 1;
-    tx_items[number_of_bits_to_write].duration0 = 0;
-
-    owb_status status = OWB_STATUS_NOT_SET;
-
-    if (rmt_write_items(info->tx_channel, tx_items, number_of_bits_to_write+1, true) == ESP_OK)
-    {
-        status = OWB_STATUS_OK;
-    }
-    else
-    {
-        status = OWB_STATUS_HW_ERROR;
-        ESP_LOGE(TAG, "rmt_write_items() failed");
-    }
-
-    return status;
-}
-
-static rmt_item32_t _encode_read_slot(void)
-{
-    rmt_item32_t item = {0};
-
-    // construct pattern for a single read time slot
-    item.level0    = 0;
-    item.duration0 = OW_DURATION_1_LOW;   // shortly force 0
-    item.level1    = 1;
-    item.duration1 = OW_DURATION_1_HIGH;  // release high and finish slot
-    return item;
-}
-
-/** NOTE: Data is read into the high bits, eg. each bit read is shifted down before the next bit is read */
-static owb_status _read_bits(const OneWireBus * bus, uint8_t *in, int number_of_bits_to_read)
-{
-    rmt_item32_t tx_items[MAX_BITS_PER_SLOT + 1] = {0};
-    uint8_t read_data = 0;
-    int res = OWB_STATUS_OK;
-
-    owb_rmt_driver_info *info = info_of_driver(bus);
-
-    if (number_of_bits_to_read > MAX_BITS_PER_SLOT)
-    {
-        ESP_LOGE(TAG, "_read_bits() OWB_STATUS_TOO_MANY_BITS");
-        return OWB_STATUS_TOO_MANY_BITS;
-    }
-
-    // generate requested read slots
-    for (int i = 0; i < number_of_bits_to_read; i++)
-    {
-        tx_items[i] = _encode_read_slot();
-    }
-
-    // end marker
-    tx_items[number_of_bits_to_read].level0 = 1;
-    tx_items[number_of_bits_to_read].duration0 = 0;
-
-    onewire_flush_rmt_rx_buf(bus);
-    rmt_rx_start(info->rx_channel, true);
-    if (rmt_write_items(info->tx_channel, tx_items, number_of_bits_to_read+1, true) == ESP_OK)
-    {
-        size_t rx_size = 0;
-        rmt_item32_t *rx_items = (rmt_item32_t *)xRingbufferReceive(info->rb, &rx_size, 100 / portTICK_PERIOD_MS);
-
-        if (rx_items)
-        {
-#ifdef OW_DEBUG
-            for (int i = 0; i < rx_size / 4; i++)
-            {
-                ESP_LOGI(TAG, "level: %d, duration %d", rx_items[i].level0, rx_items[i].duration0);
-                ESP_LOGI(TAG, "level: %d, duration %d", rx_items[i].level1, rx_items[i].duration1);
-            }
-#endif
-
-            if (rx_size >= number_of_bits_to_read * sizeof(rmt_item32_t))
-            {
-                for (int i = 0; i < number_of_bits_to_read; i++)
-                {
-                    read_data >>= 1;
-                    // parse signal and identify logical bit
-                    if (rx_items[i].level1 == 1)
-                    {
-                        if ((rx_items[i].level0 == 0) && (rx_items[i].duration0 < OW_DURATION_SAMPLE))
-                        {
-                            // rising edge occured before 15us -> bit 1
-                            read_data |= 0x80;
-                        }
-                    }
-                }
-                read_data >>= 8 - number_of_bits_to_read;
-            }
-
-            vRingbufferReturnItem(info->rb, (void *)rx_items);
+    // send data as individual bits using the `copy` encoder
+    const rmt_symbol_word_t *symbol_ptr;
+    esp_err_t esp_status;
+    for (int b = 0; b < number_of_bits_to_write; b += 1) {
+        if ((out & (1 << b)) == 0) {
+            symbol_ptr = &owb_rmt_symbol_0bit; 
+        } else {
+            symbol_ptr = &owb_rmt_symbol_1bit;
         }
-        else
-        {
-            // time out occurred, this indicates an unconnected / misconfigured bus
-            ESP_LOGE(TAG, "rx_items == 0");
-            res = OWB_STATUS_HW_ERROR;
+
+        // send bit symbol
+        esp_status = rmt_transmit (
+            info->tx_channel_handle, 
+            info->copy_encoder_handle, 
+            symbol_ptr,
+            sizeof (rmt_symbol_word_t),
+            &owb_rmt_transmit_config);    
+        if (esp_status != ESP_OK) {
+            ESP_LOGE(TAG, "owb_write_bit: tx err");
+            return OWB_STATUS_HW_ERROR;
         }
     }
-    else
-    {
-        // error in tx channel
-        ESP_LOGE(TAG, "Error tx");
-        res = OWB_STATUS_HW_ERROR;
+
+    // wait for the transmission to finish (or timeout with an error)
+    if (rmt_tx_wait_all_done (info->tx_channel_handle, OWB_RMT_TIMEOUT_MS) != ESP_OK) {
+        return OWB_STATUS_DEVICE_NOT_RESPONDING;    // tx timeout
     }
-
-    rmt_rx_stop(info->rx_channel);
-
-    *in = read_data;
-    return res;
-}
-
-static owb_status _uninitialize(const OneWireBus *bus)
-{
-    owb_rmt_driver_info * info = info_of_driver(bus);
-
-    rmt_driver_uninstall(info->tx_channel);
-    rmt_driver_uninstall(info->rx_channel);
 
     return OWB_STATUS_OK;
 }
 
-static struct owb_driver rmt_function_table =
-{
+
+/**
+ * @brief Reads up to 8 bytes from the onewire bus (this is faster than reading individual bits).
+ * @param bus A previously-initialised OneWireBus.
+ * @param result The resulting data, stored lsb first in a uint64_t.
+ * @param number_of_bytes_to_read The number of bytes to read.
+ * @return owb_status OWB_STATUS_OK on success, otherwise and error code (see owb.h)
+ */
+static owb_status _read_bytes(const OneWireBus *bus, uint64_t *result_ptr, int number_of_bytes_to_read) {
+    static uint8_t ff_bytes[] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff };
+    esp_err_t esp_status;
+
+    if (number_of_bytes_to_read > 8) {
+        ESP_LOGE(TAG, "owb_read_bytes: max 8");
+        return OWB_STATUS_TOO_MANY_BITS;
+    }
+
+    // identify the rmt_driver_info structure that contains `bus`
+    owb_rmt_driver_info *info = __containerof(bus, owb_rmt_driver_info, bus);
+
+    // start the receiver before the transmitter so that it sees the first edge
+    esp_status = rmt_receive (
+        info->rx_channel_handle, 
+        info->rx_buffer,
+        info->rx_buffer_size_in_bytes, 
+        &rx_config_owb_bits);
+    if (esp_status != ESP_OK) {
+        ESP_LOGE(TAG, "owb_read_bytes: rx err");
+        return OWB_STATUS_HW_ERROR;
+    }
+
+    // generate read slots
+    esp_status = rmt_transmit (
+        info->tx_channel_handle,
+        info->bytes_encoder_handle,
+        ff_bytes,
+        (size_t)number_of_bytes_to_read,
+        &owb_rmt_transmit_config);
+    if (esp_status != ESP_OK) {
+        ESP_LOGE(TAG, "owb_read_bytes: tx err");
+        return OWB_STATUS_HW_ERROR;
+    }
+    
+    // wait for the transmission to finish (or timeout with an error)
+    if (rmt_tx_wait_all_done (info->tx_channel_handle, OWB_RMT_TIMEOUT_MS) != ESP_OK) {
+        return OWB_STATUS_DEVICE_NOT_RESPONDING;    // tx timeout
+    }
+
+    // wait for the recv_done event data from our callback
+    rmt_rx_done_event_data_t rx_done_event_data;
+    if (xQueueReceive (info->rx_queue, &rx_done_event_data, pdMS_TO_TICKS(OWB_RMT_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "owb_read_bytes: no rx symbols");     // rx timeout
+        return OWB_STATUS_DEVICE_NOT_RESPONDING;
+    }
+
+    // decode upto 64 data bits from the received RMT symbols 
+    if (_parse_bit_symbols(rx_done_event_data.num_symbols, rx_done_event_data.received_symbols, result_ptr) == 0) {
+        ESP_LOGE(TAG, "owb_read_bytes: no bits");
+    }
+
+    return OWB_STATUS_OK;
+}
+
+
+/**
+ * @brief Reads up to 8 bits from the onewire bus.
+ * @param bus A previously-initialised OneWireBus.
+ * @param result A byte containing the bits read (lsb first).
+ * @param number_of_bits_to_read The number of bits to read.
+ * @return owb_status OWB_STATUS_OK on success, otherwise an error code (see owb.h)
+ */
+static owb_status _read_bits(const OneWireBus *bus, uint8_t *result, int number_of_bits_to_read) {
+    esp_err_t esp_status;
+
+    if (number_of_bits_to_read > 8) {
+        ESP_LOGE(TAG, "owb_read_bits: max 8");
+        return OWB_STATUS_TOO_MANY_BITS;
+    }
+
+    // it's quicker to read 8 bits as a whole byte
+    if (number_of_bits_to_read == 8) {
+        uint64_t result_64;
+        owb_status status;
+        status = _read_bytes (bus, &result_64, 1);
+        *result = (uint8_t)result_64;
+        return status; 
+    }
+
+    // identify the rmt_driver_info structure that contains `bus`
+    owb_rmt_driver_info *info = __containerof(bus, owb_rmt_driver_info, bus);
+
+    // with the copy encoder then it's most efficient to receive each bit individually
+    // because we don't accurately know the interval between bits.
+    // It would be nice to use `rmt_transmit_config.loop_count` here, but it's not supported
+    // on all chips. In any case the user almost certainly only wants a single bit.
+    *result = 0;
+    for (int bit_index = 0; bit_index < number_of_bits_to_read; bit_index += 1) {
+
+        // start the receiver before the transmitter so that it sees the first edge
+        esp_status = rmt_receive (
+            info->rx_channel_handle, 
+            info->rx_buffer,
+            info->rx_buffer_size_in_bytes, 
+            &rx_config_owb_bits);
+        if (esp_status != ESP_OK) {
+            ESP_LOGE(TAG, "owb_read_bits: rx err");
+            return OWB_STATUS_HW_ERROR;
+        }
+
+        // send a '1' symbol to generate a read slot
+        esp_status = rmt_transmit (
+            info->tx_channel_handle, 
+            info->copy_encoder_handle, 
+            &owb_rmt_symbol_1bit,
+            sizeof (rmt_symbol_word_t),
+            &owb_rmt_transmit_config);    
+        if (esp_status != ESP_OK) {
+            ESP_LOGE(TAG, "owb_read_bits: tx err");
+            return OWB_STATUS_HW_ERROR;
+        }
+
+        // wait for the transmission to finish (or timeout with an error)
+        if (rmt_tx_wait_all_done (info->tx_channel_handle, OWB_RMT_TIMEOUT_MS) != ESP_OK) {
+            return OWB_STATUS_DEVICE_NOT_RESPONDING;    // tx timeout
+        }
+
+        // wait for the recv_done event data from our callback
+        rmt_rx_done_event_data_t rx_done_event_data;
+        if (xQueueReceive (info->rx_queue, &rx_done_event_data, pdMS_TO_TICKS(OWB_RMT_TIMEOUT_MS)) != pdTRUE) {
+            ESP_LOGE(TAG, "owb_read_bits: no rx symbol");       // rx timeout
+            return OWB_STATUS_DEVICE_NOT_RESPONDING;
+        }
+
+        // parse the event data
+        uint64_t bits = 0;
+        if (_parse_bit_symbols (rx_done_event_data.num_symbols, rx_done_event_data.received_symbols, &bits) == 0) {
+            ESP_LOGE(TAG, "owb_read_bits: no bits");
+            return OWB_STATUS_HW_ERROR;
+        }
+
+        // add the bit to `result` (lsb is received first)
+        if ((bits & 1) != 0) {
+            *result |= (1 << bit_index);
+        }
+    }
+
+    return OWB_STATUS_OK;    
+}
+
+
+/**
+ * @brief Handle the RMT `recv_done` event by copying the event data structure to the specified queue.
+ * @param[in] channel The handle of the RMT channel that generated the event.
+ * @param[in] edata A pointer to the RMT event data structure (the pointer is valid only within this function).
+ * @param[in] context A pointer to the user-provided context, in this case the queue handle.
+ * @return True if sending to the queue caused a higher priority task to unblock; otherwise False.
+ */
+static bool IRAM_ATTR _recv_done_callback (rmt_channel_handle_t channel, const rmt_rx_done_event_data_t *event_data, void *user_data) {
+    // Copy a pointer to the event data structure to the queue identified in the user_data.
+    //* NOTE: this is an interrupt handler so it needs IRAM_ATTR, may only use `ISR` calls and must return promptly.
+    //
+    BaseType_t pxHigherPriorityTaskWoken = pdFALSE;
+
+    xQueueSendFromISR ((QueueHandle_t)user_data, event_data, &pxHigherPriorityTaskWoken);
+    if (pxHigherPriorityTaskWoken == pdTRUE) {
+        return true;
+    }
+    return false;
+}
+
+
+//-----
+// Public API functions
+//-----
+
+// RMT version of the OWB driver api (will be stored as info->bus->driver)
+//
+static struct owb_driver rmt_driver_functions = {
     .name = "owb_rmt",
     .uninitialize = _uninitialize,
     .reset = _reset,
     .write_bits = _write_bits,
-    .read_bits = _read_bits
+    .write_bytes = _write_bytes,    // new addition to the API
+    .read_bits = _read_bits,
+    .read_bytes = _read_bytes       // new addition to the API
 };
 
-static owb_status _init(owb_rmt_driver_info *info, gpio_num_t gpio_num,
-                        rmt_channel_t tx_channel, rmt_channel_t rx_channel)
+
+// configure and allocate resources
+//
+OneWireBus* owb_rmt_initialize (owb_rmt_driver_info *info, gpio_num_t gpio_num, int tx_channel, int rx_channel)
 {
-    owb_status status = OWB_STATUS_HW_ERROR;
+    //* The function now ignores tx_channel and rx_channel as the new RMT driver allocates channels on demand.
+    //* The parameters are kept in the call to preserve compatibility with previous versions.
 
-    // Ensure the RMT peripheral is not already running
-    // Note: if using RMT elsewhere, don't call this here, call it at the start of your program instead.
-    //periph_module_disable(PERIPH_RMT_MODULE);
-    //periph_module_enable(PERIPH_RMT_MODULE);
+    // the steps to enable the RMT resources are documented in:
+    // https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/rmt.html
 
-    info->bus.driver = &rmt_function_table;
-    info->tx_channel = tx_channel;
-    info->rx_channel = rx_channel;
+    //  Note: keeping the TX and RX initialisations together in one function simplifies the error handling
+
+    (void)tx_channel;   // avoid compiler warning about unused parameter
+    (void)rx_channel;   // avoid compiler warning about unused parameter
+
+    // sanity check
+    if (info == NULL) {
+        ESP_LOGE(TAG, "info is NULL");
+        goto exit_err;
+    } 
+    
+    // ----- receive channel -----
+
+    // channel config
+    const rmt_rx_channel_config_t rx_channel_config = {
+        .gpio_num = (int)gpio_num,
+        .clk_src = RMT_CLK_SRC_APB,         // use the APB clock (might reduce during light sleep)
+        .resolution_hz = OWB_RMT_CLK_HZ,
+        .mem_block_symbols = (size_t)OWB_RMT_RX_MEM_BLOCK_SYMBOLS,
+                .flags = {
+            .invert_in = 0,                 // don't hardware invert the input
+            .with_dma = 0,                  // don't enable DMA
+            .io_loop_back = 0               // we define the loopback in the tx config
+        }
+    };
+
+    // request channel
+    //* note: to get a wired-OR bus you must apply the rx_config first, _then_ the rx_config
+    if (rmt_new_rx_channel (&rx_channel_config, &(info->rx_channel_handle)) != ESP_OK) {
+        ESP_LOGE(TAG, "err requesting rx_channel");
+        goto exit_err;
+    }
+
+    // create queue for RMT `rx_done` event data struct (from callback)
+    info->rx_queue = xQueueCreate (1, sizeof (rmt_rx_done_event_data_t));
+    if (info->rx_queue == NULL) {
+        ESP_LOGE(TAG, "err creating rx_queue");
+        goto exit_delete_rx_channel;
+    }
+
+    // allocate rx symbol buffer for RMT driver
+    info->rx_buffer_size_in_bytes = OWB_RMT_MAX_READ_BITS * sizeof (rmt_symbol_word_t);
+    info->rx_buffer = (rmt_symbol_word_t *)malloc (info->rx_buffer_size_in_bytes);
+    if (info->rx_buffer == NULL) {
+        ESP_LOGE(TAG, "err allocating rx_buffer");
+        goto exit_delete_rx_queue;
+    }
+
+    // register rx channel callback (rx_queue is passed as user context)
+    const rmt_rx_event_callbacks_t rmt_rx_event_callbacks = {
+        .on_recv_done = _recv_done_callback
+    };
+    if (rmt_rx_register_event_callbacks (info->rx_channel_handle, &rmt_rx_event_callbacks, info->rx_queue) != ESP_OK) {
+        ESP_LOGE(TAG, "err registering rx_callbacks");
+        goto exit_release_rx_buffer;
+    }
+
+    // enable channel
+    if (rmt_enable (info->rx_channel_handle) != ESP_OK) {
+        ESP_LOGE(TAG, "err enabling rx_channel");
+        goto exit_release_rx_buffer;
+    }
+
+    // ----- transmit channel -----
+
+    // channel config
+    const rmt_tx_channel_config_t tx_channel_config = {
+        .gpio_num = (int)gpio_num,
+        .clk_src = RMT_CLK_SRC_APB,         // use the APB clock (might reduce during light sleep)
+        .resolution_hz = OWB_RMT_CLK_HZ,
+        .mem_block_symbols = (size_t)OWB_RMT_TX_MEM_BLOCK_SYMBOLS,
+        .trans_queue_depth = OWB_RMT_TX_QUEUE_DEPTH,
+        .flags = {
+            .invert_out = 1,                // invert the output (so that the bus is initially released)
+            .with_dma = 0,                  // don't enable DMA
+            .io_loop_back = 1,              // enable reading of actual voltage of output pin
+            .io_od_mode = 1                 // enable open-drain output, so as to achieve a 'wired-OR' bus
+        }
+    };
+
+    // request channel
+    if (rmt_new_tx_channel (&tx_channel_config, &(info->tx_channel_handle)) != ESP_OK) {
+        ESP_LOGE(TAG, "err requesting tx_channel");
+        goto exit_disable_rx_channel;
+    }
+
+    // enable channel
+    if (rmt_enable (info->tx_channel_handle) != ESP_OK) {
+        ESP_LOGE(TAG, "err enabling tx_channel");
+        goto exit_delete_tx_channel;
+    }
+
+    // obtain a 'copy' encoder (an RMT built-in used for sending fixed bit patterns)
+    const rmt_copy_encoder_config_t rmt_copy_encoder_config = {};   // config is "reserved for future expansion"
+    if (rmt_new_copy_encoder (&rmt_copy_encoder_config, &(info->copy_encoder_handle)) != ESP_OK) {
+        ESP_LOGE(TAG, "err requesting copy encoder");
+        goto exit_disable_tx_channel;
+    }
+
+    // otain a 'bytes' encoder (an RMT built-in used for sending variable bit patterns)
+    const rmt_bytes_encoder_config_t rmt_bytes_encoder_config = {
+        .bit0 = OWB_RMT_SYMBOL_0BIT,
+        .bit1 = OWB_RMT_SYMBOL_1BIT,
+        .flags = {
+            .msb_first = 0                  // onewire bus on-the-wire bit order is lsb first
+        }
+    };
+    if (rmt_new_bytes_encoder(&rmt_bytes_encoder_config, &info->bytes_encoder_handle) != ESP_OK) {
+        ESP_LOGE(TAG, "err requesting bytes encoder");
+        goto exit_delete_copy_encoder;
+    }
+
+
+    // ----- success ------
     info->gpio = gpio_num;
-
-#ifdef OW_DEBUG
-    ESP_LOGI(TAG, "RMT TX channel: %d", info->tx_channel);
-    ESP_LOGI(TAG, "RMT RX channel: %d", info->rx_channel);
-#endif
-
-    rmt_config_t rmt_tx = {0};
-    rmt_tx.channel = info->tx_channel;
-    rmt_tx.gpio_num = gpio_num;
-    rmt_tx.mem_block_num = 1;
-    rmt_tx.clk_div = 80;
-    rmt_tx.tx_config.loop_en = false;
-    rmt_tx.tx_config.carrier_en = false;
-    rmt_tx.tx_config.idle_level = 1;
-    rmt_tx.tx_config.idle_output_en = true;
-    rmt_tx.rmt_mode = RMT_MODE_TX;
-    if (rmt_config(&rmt_tx) == ESP_OK)
-    {
-        if (rmt_driver_install(rmt_tx.channel, 0, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK)
-        {
-            rmt_set_source_clk(rmt_tx.channel, RMT_BASECLK_APB);  // only APB is supported by IDF 4.2
-            rmt_config_t rmt_rx = {0};
-            rmt_rx.channel = info->rx_channel;
-            rmt_rx.gpio_num = gpio_num;
-            rmt_rx.clk_div = 80;
-            rmt_rx.mem_block_num = 1;
-            rmt_rx.rmt_mode = RMT_MODE_RX;
-            rmt_rx.rx_config.filter_en = true;
-            rmt_rx.rx_config.filter_ticks_thresh = 30;
-            rmt_rx.rx_config.idle_threshold = OW_DURATION_RX_IDLE;
-            if (rmt_config(&rmt_rx) == ESP_OK)
-            {
-                if (rmt_driver_install(rmt_rx.channel, 512, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_SHARED) == ESP_OK)
-                {
-                    rmt_set_source_clk(rmt_rx.channel, RMT_BASECLK_APB);  // only APB is supported by IDF 4.2
-                    rmt_get_ringbuf_handle(info->rx_channel, &info->rb);
-                    status = OWB_STATUS_OK;
-                }
-                else
-                {
-                    ESP_LOGE(TAG, "failed to install rx driver");
-                }
-            }
-            else
-            {
-                status = OWB_STATUS_HW_ERROR;
-                ESP_LOGE(TAG, "failed to configure rx, uninstalling rmt driver on tx channel");
-                rmt_driver_uninstall(rmt_tx.channel);
-            }
-        }
-        else
-        {
-            ESP_LOGE(TAG, "failed to install tx driver");
-        }
-    }
-    else
-    {
-        ESP_LOGE(TAG, "failed to configure tx");
-    }
-
-    // attach GPIO to previous pin
-    if (gpio_num < 32)
-    {
-        GPIO.enable_w1ts = (0x1 << gpio_num);
-    }
-    else
-    {
-        GPIO.enable1_w1ts.data = (0x1 << (gpio_num - 32));
-    }
-
-    // attach RMT channels to new gpio pin
-    // ATTENTION: set pin for rx first since gpio_output_disable() will
-    //            remove rmt output signal in matrix!
-    rmt_set_gpio(info->rx_channel, RMT_MODE_RX, gpio_num, 0);
-    rmt_set_gpio(info->tx_channel, RMT_MODE_TX, gpio_num, 0);
-
-    // force pin direction to input to enable path to RX channel
-    PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[gpio_num]);
-
-    // enable open drain
-    GPIO.pin[gpio_num].pad_driver = 1;
-
-    return status;
-}
-
-OneWireBus * owb_rmt_initialize(owb_rmt_driver_info * info, gpio_num_t gpio_num,
-                                rmt_channel_t tx_channel, rmt_channel_t rx_channel)
-{
-    ESP_LOGD(TAG, "%s: gpio_num: %d, tx_channel: %d, rx_channel: %d",
-             __func__, gpio_num, tx_channel, rx_channel);
-
-    owb_status status = _init(info, gpio_num, tx_channel, rx_channel);
-    if (status != OWB_STATUS_OK)
-    {
-        ESP_LOGE(TAG, "_init() failed with status %d", status);
-    }
-
-    info->bus.strong_pullup_gpio = GPIO_NUM_NC;
-
+    info->bus.driver = &rmt_driver_functions;   // route driver API calls to the functions in this file
+    ESP_LOGI(TAG, "%s: OK", __func__);
     return &(info->bus);
+
+    // ----- error: unwind allocated resources -----
+exit_delete_copy_encoder:
+    ESP_ERROR_CHECK(rmt_del_encoder(info->copy_encoder_handle));
+exit_disable_tx_channel:
+    ESP_ERROR_CHECK(rmt_disable (info->tx_channel_handle));
+exit_delete_tx_channel:
+    ESP_ERROR_CHECK(rmt_del_channel (info->tx_channel_handle));
+exit_disable_rx_channel:
+    ESP_ERROR_CHECK(rmt_disable (info->rx_channel_handle));
+exit_release_rx_buffer:
+    free (info->rx_buffer);
+exit_delete_rx_queue:
+    vQueueDelete (info->rx_queue);
+exit_delete_rx_channel:
+    ESP_ERROR_CHECK(rmt_del_channel (info->rx_channel_handle));
+exit_err:
+    ESP_LOGE(TAG, "%s: failed", __func__);
+    return NULL;
 }
