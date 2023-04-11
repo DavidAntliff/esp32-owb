@@ -125,23 +125,17 @@ typedef enum
 /** NOTE: Driver assumes that (*init) was called prior to any other methods */
 struct owb_driver
 {
-    /** Driver identification **/
     const char* name;
-
-    /** Pointer to driver uninitialization function **/
     owb_status (*uninitialize)(const OneWireBus * bus);
-
-    /** Pointer to driver reset functio **/
-    owb_status (*reset)(const OneWireBus * bus, bool *is_present);
-
-    /** NOTE: The data is shifted out of the low bits, eg. it is written in the order of lsb to msb */
+    owb_status (*reset)(const OneWireBus *bus, bool *is_present);
     owb_status (*write_bits)(const OneWireBus *bus, uint8_t out, int number_of_bits_to_write);
-
-    /** NOTE: Data is read into the high bits, eg. each bit read is shifted down before the next bit is read */
+    owb_status (*write_bytes)(const OneWireBus *bus, uint8_t *bytes, int number_of_bytes_to_write);     // new addition to the API
     owb_status (*read_bits)(const OneWireBus *bus, uint8_t *in, int number_of_bits_to_read);
+    owb_status (*read_bytes)(const OneWireBus *bus, uint64_t *in, int number_of_bytes_to_read);         // new addition to the API
 };
 
 /// @cond ignore
+// note: the new owb_rmt driver uses the ESP-IDF's built-in `__containerof()` macro instead of this
 #define container_of(ptr, type, member) ({                      \
         const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
         (type *)( (char *)__mptr - offsetof(type,member) );})
